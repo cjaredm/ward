@@ -33,6 +33,17 @@ npm run hash-password -- 'the shared ward password'   # prints WARD_APP_PASSWORD
 ```
 
 Fill in `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct), and the two printed secrets.
+Paste them exactly as printed — no quotes, no escaping — and don't leave the plaintext
+password in the file.
+
+`WARD_APP_PASSWORD_HASH` is the bcrypt hash **base64-encoded**, on purpose. Next.js runs
+dotenv-expand over `.env` files, and a raw bcrypt hash starts with `$2b$12$` — those read as
+variable references and expand to nothing, so the value silently truncates and every login
+fails with "Incorrect password" while the password is fine. Escaping each `$` fixes `.env`
+but Vercel's dashboard stores values literally, so the same secret would need two different
+forms. Base64 has no `$` and is byte-identical everywhere.
+[src/lib/password.ts](src/lib/password.ts) still accepts a raw hash where it survives intact,
+and throws a specific error rather than a generic auth failure when it doesn't.
 
 ### 3. Load the data
 

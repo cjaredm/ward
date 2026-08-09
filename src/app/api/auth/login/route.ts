@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { COOKIE_NAME, cookieOptions, signSession } from '@/lib/auth'
+import { resolvePasswordHash } from '@/lib/password'
 
 export const runtime = 'nodejs'
 
@@ -36,10 +37,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too many attempts. Try again later.' }, { status: 429 })
   }
 
-  const hash = process.env.WARD_APP_PASSWORD_HASH
-  if (!hash) {
-    console.error('WARD_APP_PASSWORD_HASH is not set')
-    return NextResponse.json({ error: 'Server not configured' }, { status: 500 })
+  let hash: string
+  try {
+    hash = resolvePasswordHash()
+  } catch (err) {
+    // Loud and specific: a mangled hash otherwise presents as "Incorrect
+    // password" forever, with nothing to debug from.
+    console.error(err instanceof Error ? err.message : err)
+    return NextResponse.json(
+      { error: 'Server password is not configured correctly. Check the server logs.' },
+      { status: 500 },
+    )
   }
 
   // Never log the parsed body — it carries the shared password.
