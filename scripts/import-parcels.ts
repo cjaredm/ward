@@ -82,7 +82,10 @@ async function fetchParcels(esriRings: Ring[]): Promise<Feature[]> {
   return features
 }
 
-async function loadStaging(client: Client, features: Feature[]): Promise<number> {
+async function loadStaging(
+  client: Client,
+  features: Feature[],
+): Promise<{ staged: number; skippedNoId: number }> {
   await client.query(`
     CREATE TEMP TABLE parcels_staging (
       parcel_id         text PRIMARY KEY,
@@ -99,7 +102,7 @@ async function loadStaging(client: Client, features: Feature[]): Promise<number>
     ) ON COMMIT DROP
   `)
 
-  let loaded = 0
+  let skippedNoId = 0
 
   for (let i = 0; i < features.length; i += 200) {
     const chunk = features.slice(i, i + 200)
@@ -109,7 +112,12 @@ async function loadStaging(client: Client, features: Feature[]): Promise<number>
     for (const f of chunk) {
       const p = f.properties
       const id = p.PARCEL_ID?.trim()
-      if (!id || !f.geometry) continue // no stable join key, or geometry-less record
+      if (!id || !f.geometry) {
+        // No stable join key, so it can never carry a household. In practice
+        // these are roads, HOA common areas and retention basins.
+        skippedNoId++
+        continue
+      }
 
       const n = values.length
       // ST_Multi normalizes Polygon -> MultiPolygon; the service returns both.
@@ -134,8 +142,8 @@ async function loadStaging(client: Client, features: Feature[]): Promise<number>
     }
     if (tuples.length === 0) continue
 
-    // ON CONFLICT: the county layer can return the same PARCEL_ID twice across
-    // pages when a parcel has split geometry. Last one wins; they carry the same
+    // ON CONFLICT: the county layer returns the same PARCEL_ID more than once
+    // when a parcel has split geometry. First one wins; they carry the same
     // attributes.
     await client.query(
       `INSERT INTO parcels_staging
@@ -145,10 +153,12 @@ async function loadStaging(client: Client, features: Feature[]): Promise<number>
        ON CONFLICT (parcel_id) DO NOTHING`,
       values,
     )
-    loaded += tuples.length
   }
 
-  return loaded
+  // Count rows that actually landed, not tuples attempted: ON CONFLICT silently
+  // drops the duplicates, and reporting the attempt count overstates the import.
+  const staged = await client.query<{ n: number }>('SELECT count(*)::int AS n FROM parcels_staging')
+  return { staged: staged.rows[0].n, skippedNoId }
 }
 
 run(() =>
@@ -167,7 +177,7 @@ run(() =>
 
     await client.query('BEGIN')
     try {
-      const staged = await loadStaging(client, features)
+      const { staged, skippedNoId } = await loadStaging(client, features)
 
       // Precise clip in PostGIS, not JS. ArcGIS `Intersects` catches parcels that
       // merely touch the boundary; centroid containment matches how people actually
@@ -247,7 +257,10 @@ run(() =>
       const s = summary.rows[0]
       console.log('\n--- import summary ---')
       console.log(`fetched from service      ${features.length}`)
-      console.log(`staged (had PARCEL_ID)    ${staged}`)
+      console.log(`skipped, no PARCEL_ID     ${skippedNoId}   (roads, common areas, basins)`)
+      console.log(`skipped, duplicate ID     ${features.length - skippedNoId - staged}`)
+      console.log(`staged (unique parcels)   ${staged}`)
+      console.log(`dropped, centroid outside ${staged - kept}`)
       console.log(`kept after centroid clip  ${kept}`)
       console.log(`inserted                  ${inserted}`)
       console.log(`updated                   ${updated}`)
