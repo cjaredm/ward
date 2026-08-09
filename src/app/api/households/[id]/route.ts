@@ -26,8 +26,55 @@ const Patch = z.object({
   family_name: z.string().trim().min(1).max(120).optional(),
   status: z.enum(HOUSEHOLD_STATUSES).optional(),
   notes: nullableText(4000).optional(),
+  // Only meaningful for pinned households; parcel-backed ones show the county address.
+  address: nullableText(200).optional(),
   people: z.array(PersonInput).max(30).optional(),
 })
+
+/**
+ * One household with its people, shaped like ParcelDetail so the panel can render
+ * a pinned household (no parcel behind it) with the same component.
+ */
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  try {
+    await requireSession()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { id } = await ctx.params
+  const rows = (await sql`
+    SELECT jsonb_build_object(
+      'id', h.id,
+      'parcel_id', h.parcel_id,
+      'family_name', h.family_name,
+      'status', h.status,
+      'notes', h.notes,
+      'address', h.address,
+      'updated_at', h.updated_at,
+      'updated_by', h.updated_by,
+      'people', coalesce((
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', pe.id, 'full_name', pe.full_name, 'role', pe.role,
+            'phone', pe.phone, 'email', pe.email, 'sort_order', pe.sort_order
+          ) ORDER BY pe.sort_order, pe.full_name
+        ) FROM people pe WHERE pe.household_id = h.id
+      ), '[]'::jsonb)
+    ) AS household
+    FROM households h
+    WHERE h.id = ${id} AND h.deleted_at IS NULL
+  `) as { household: unknown }[]
+
+  if (rows.length === 0) {
+    return NextResponse.json({ error: 'Household not found' }, { status: 404 })
+  }
+
+  return NextResponse.json(
+    { parcel: null, households: [rows[0].household] },
+    { headers: { 'Cache-Control': 'private, no-store' } },
+  )
+}
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   let actor: string
@@ -67,6 +114,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       status      = coalesce(${fields.status ?? null}::text::household_status, status),
       notes = CASE WHEN ${has('notes')}::boolean
         THEN ${fields.notes ?? null}::text ELSE notes END,
+      address = CASE WHEN ${has('address')}::boolean
+        THEN ${fields.address ?? null}::text ELSE address END,
       updated_at = now(),
       updated_by = ${actor}
     WHERE id = ${id}

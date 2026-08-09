@@ -3,7 +3,7 @@
  * Idempotent — safe to re-run monthly when UGRC refreshes the county layer.
  *
  * The one invariant that matters: this script must never touch `households`,
- * `people` or the manual `in_ward` / `is_residential` overrides on `parcels`.
+ * `people` or the manual `in_ward` / `use_type` / `business_name` overrides on `parcels`.
  * See scripts/test-import-clobber.ts.
  */
 import type { Client } from 'pg'
@@ -192,12 +192,16 @@ run(() =>
       const upsert = await client.query<{ inserted: boolean }>(`
       INSERT INTO parcels (
         parcel_id, address, city, zip, account_num, own_type, coparcel_url,
-        geom, centroid, area_sqm, county_current_at, imported_at, is_residential
+        geom, centroid, area_sqm, county_current_at, imported_at, use_type
       )
       SELECT
         parcel_id, address, city, zip, account_num, own_type, coparcel_url,
         geom, centroid, area_sqm, county_current_at, now(),
-        (address IS NOT NULL AND btrim(address) <> '')
+        -- Initial guess only, and only for parcels we have never seen: a blank
+        -- county address means a road, basin or common area. Businesses are
+        -- indistinguishable from homes here and get marked by hand in the app.
+        CASE WHEN address IS NOT NULL AND btrim(address) <> ''
+             THEN 'residence'::parcel_use ELSE 'common_area'::parcel_use END
       FROM parcels_staging
       ON CONFLICT (parcel_id) DO UPDATE SET
         address           = EXCLUDED.address,
@@ -211,14 +215,18 @@ run(() =>
         area_sqm          = EXCLUDED.area_sqm,
         county_current_at = EXCLUDED.county_current_at,
         imported_at       = EXCLUDED.imported_at
-        -- in_ward and is_residential are deliberately absent: they are manual
-        -- overrides and must survive every re-import.
+        -- in_ward, use_type and business_name are deliberately absent: they are
+        -- manual overrides and must survive every re-import.
       RETURNING (xmax = 0) AS inserted
     `)
       const inserted = upsert.rows.filter((r) => r.inserted).length
       const updated = upsert.rows.length - inserted
 
-      // Parcels we hold that the county no longer returns inside the boundary.
+      // County parcels we hold that the county no longer returns inside the boundary.
+      //
+      // `source = 'county'` is load-bearing: hand-drawn parcels never appear in
+      // staging, so without this filter every one of them would be classified as
+      // stale and deleted on the next monthly refresh.
       const stale = await client.query<{
         parcel_id: string
         address: string | null
@@ -227,7 +235,8 @@ run(() =>
       SELECT p.parcel_id, p.address, count(h.id)::int AS n
       FROM parcels p
       LEFT JOIN households h ON h.parcel_id = p.parcel_id AND h.deleted_at IS NULL
-      WHERE NOT EXISTS (SELECT 1 FROM parcels_staging s WHERE s.parcel_id = p.parcel_id)
+      WHERE p.source = 'county'
+        AND NOT EXISTS (SELECT 1 FROM parcels_staging s WHERE s.parcel_id = p.parcel_id)
       GROUP BY p.parcel_id, p.address
     `)
       const orphanedWithHouseholds = stale.rows.filter((r) => r.n > 0)
@@ -243,12 +252,16 @@ run(() =>
 
       const summary = await client.query<{
         total: number
-        residential: number
-        non_residential: number
+        residence: number
+        business: number
+        common_area: number
+        manual: number
       }>(`
       SELECT count(*)::int AS total,
-             count(*) FILTER (WHERE is_residential)::int     AS residential,
-             count(*) FILTER (WHERE NOT is_residential)::int AS non_residential
+             count(*) FILTER (WHERE use_type = 'residence')::int   AS residence,
+             count(*) FILTER (WHERE use_type = 'business')::int    AS business,
+             count(*) FILTER (WHERE use_type = 'common_area')::int AS common_area,
+             count(*) FILTER (WHERE source = 'manual')::int        AS manual
       FROM parcels
     `)
 
@@ -266,10 +279,10 @@ run(() =>
       console.log(`updated                   ${updated}`)
       console.log(`removed (stale, no data)  ${removed}`)
       console.log(`\nparcels total             ${s.total}`)
-      console.log(`  residential             ${s.residential}`)
-      console.log(
-        `  non-residential         ${s.non_residential}   (blank PARCEL_ADD; hidden by default)`,
-      )
+      console.log(`  residence               ${s.residence}`)
+      console.log(`  business                ${s.business}   (marked by hand in the app)`)
+      console.log(`  common area             ${s.common_area}   (blank PARCEL_ADD; hidden by default)`)
+      console.log(`  hand-drawn              ${s.manual}   (never touched by this import)`)
 
       if (orphanedWithHouseholds.length > 0) {
         console.log(

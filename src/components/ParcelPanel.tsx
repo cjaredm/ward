@@ -3,12 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   HOUSEHOLD_STATUSES,
+  PARCEL_USES,
   STATUS_LABELS,
+  USE_LABELS,
   type Household,
   type HouseholdStatus,
   type ParcelDetail,
+  type ParcelUse,
   type Person,
 } from '@/lib/types'
+
+/** What the panel is showing: a county parcel, or a household pinned to a point. */
+export type PanelTarget =
+  | { kind: 'parcel'; parcelId: string }
+  | { kind: 'pin'; householdId: string }
 
 type SaveState = { status: 'idle' | 'saving' | 'saved' | 'error'; at?: number; message?: string }
 
@@ -19,13 +27,17 @@ function relativeTime(ts: number): string {
   return `${Math.floor(mins / 60)}h ago`
 }
 
+const field =
+  'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900'
+const labelCls = 'block text-xs font-medium text-neutral-700'
+
 export default function ParcelPanel({
-  parcelId,
+  target,
   actorName,
   onClose,
   onChanged,
 }: {
-  parcelId: string
+  target: PanelTarget
   actorName: string
   onClose: () => void
   onChanged: () => void
@@ -35,13 +47,18 @@ export default function ParcelPanel({
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
   const [, forceTick] = useState(0)
 
+  const url =
+    target.kind === 'parcel'
+      ? `/api/parcels/${encodeURIComponent(target.parcelId)}`
+      : `/api/households/${encodeURIComponent(target.householdId)}`
+
   const load = useCallback(async () => {
-    const res = await fetch(`/api/parcels/${encodeURIComponent(parcelId)}`)
+    const res = await fetch(url)
     if (!res.ok) return
     const body = (await res.json()) as ParcelDetail
     setDetail(body)
     setActiveIdx((i) => Math.min(i, Math.max(0, body.households.length - 1)))
-  }, [parcelId])
+  }, [url])
 
   useEffect(() => {
     setDetail(null)
@@ -56,7 +73,11 @@ export default function ParcelPanel({
     return () => clearInterval(t)
   }, [save.status])
 
+  const activeIdxRef = useRef(activeIdx)
+  activeIdxRef.current = activeIdx
+
   const household = detail?.households[activeIdx] ?? null
+  const parcel = detail?.parcel ?? null
 
   /**
    * Optimistic: the local edit is already applied by the caller, so a failure
@@ -64,7 +85,7 @@ export default function ParcelPanel({
    * Ward members use this on a phone in a parking lot; losing input to a dropped
    * request is the failure mode that matters.
    */
-  const patch = useCallback(
+  const patchHousehold = useCallback(
     async (id: string, body: Record<string, unknown>) => {
       setSave({ status: 'saving' })
       try {
@@ -86,6 +107,30 @@ export default function ParcelPanel({
     [onChanged],
   )
 
+  const patchParcel = useCallback(
+    async (body: Record<string, unknown>) => {
+      if (target.kind !== 'parcel') return
+      setSave({ status: 'saving' })
+      try {
+        const res = await fetch(`/api/parcels/${encodeURIComponent(target.parcelId)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) {
+          setSave({ status: 'error', message: 'Not saved — check your connection.' })
+          return
+        }
+        setSave({ status: 'saved', at: Date.now() })
+        await load()
+        onChanged()
+      } catch {
+        setSave({ status: 'error', message: 'Not saved — check your connection.' })
+      }
+    },
+    [target, load, onChanged],
+  )
+
   const updateLocal = useCallback((patchFields: Partial<Household>) => {
     setDetail((d) => {
       if (!d) return d
@@ -95,21 +140,20 @@ export default function ParcelPanel({
     })
   }, [])
 
-  const activeIdxRef = useRef(activeIdx)
-  activeIdxRef.current = activeIdx
-
   async function addHousehold() {
+    if (target.kind !== 'parcel') return
     const res = await fetch('/api/households', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parcel_id: parcelId, family_name: 'New household' }),
+      body: JSON.stringify({ parcel_id: target.parcelId, family_name: 'New household' }),
     })
     if (!res.ok) {
       setSave({ status: 'error', message: 'Could not add household.' })
       return
     }
+    const next = detail?.households.length ?? 0
     await load()
-    setActiveIdx(detail?.households.length ?? 0)
+    setActiveIdx(next)
     onChanged()
   }
 
@@ -125,12 +169,22 @@ export default function ParcelPanel({
       setSave({ status: 'error', message: 'Could not delete household.' })
       return
     }
+    onChanged()
+    // A pinned household IS the thing the panel is showing; once it is gone
+    // there is nothing left to display.
+    if (target.kind === 'pin') {
+      onClose()
+      return
+    }
     setActiveIdx(0)
     await load()
-    onChanged()
   }
 
-  const parcel = detail?.parcel
+  const isBusiness = parcel?.use_type === 'business'
+  const headerTitle =
+    target.kind === 'pin'
+      ? (household?.address ?? household?.family_name ?? 'Pinned home')
+      : (parcel?.address ?? (detail ? 'No address on file' : 'Loading…'))
 
   return (
     <aside
@@ -141,10 +195,10 @@ export default function ParcelPanel({
       <header className="shrink-0 border-b border-neutral-200 bg-neutral-100 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-neutral-900">
-              {parcel?.address ?? (detail ? 'No address on file' : 'Loading…')}
+            <p className="truncate text-base font-semibold text-neutral-900">{headerTitle}</p>
+            <p className="mt-0.5 font-mono text-[11px] text-neutral-500">
+              {target.kind === 'parcel' ? target.parcelId : 'Dropped pin · no county parcel'}
             </p>
-            <p className="mt-0.5 font-mono text-[11px] text-neutral-500">{parcelId}</p>
           </div>
           <button
             onClick={onClose}
@@ -154,28 +208,97 @@ export default function ParcelPanel({
             ✕
           </button>
         </div>
-        <p className="mt-2 text-[11px] text-neutral-500">
-          Washington County record · not editable
-          {parcel?.coparcel_url && (
-            <>
-              {' · '}
-              <a
-                href={parcel.coparcel_url}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="underline underline-offset-2"
-              >
-                County viewer
-              </a>
-            </>
-          )}
-        </p>
+        {target.kind === 'parcel' && (
+          <p className="mt-2 text-[11px] text-neutral-500">
+            {parcel?.source === 'manual'
+              ? 'Hand-drawn outline · not a county record'
+              : 'Washington County record · not editable'}
+            {parcel?.coparcel_url && (
+              <>
+                {' · '}
+                <a
+                  href={parcel.coparcel_url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="underline underline-offset-2"
+                >
+                  County viewer
+                </a>
+              </>
+            )}
+          </p>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* What the property is used for. Ward-set, survives the monthly import. */}
+        {target.kind === 'parcel' && parcel && (
+          <section className="border-b border-neutral-200 px-4 py-3">
+            <label className={labelCls} htmlFor="use_type">
+              Property type
+            </label>
+            <select
+              id="use_type"
+              className={field}
+              value={parcel.use_type}
+              onChange={(e) => patchParcel({ use_type: e.target.value as ParcelUse })}
+            >
+              {PARCEL_USES.map((u) => (
+                <option key={u} value={u}>
+                  {USE_LABELS[u]}
+                </option>
+              ))}
+            </select>
+
+            {parcel.source === 'manual' && (
+              <button
+                onClick={async () => {
+                  if (!confirm('Delete this hand-drawn parcel? The outline is removed from the map.'))
+                    return
+                  const res = await fetch(`/api/parcels/${encodeURIComponent(parcel.parcel_id)}`, {
+                    method: 'DELETE',
+                  })
+                  if (!res.ok) {
+                    const body = (await res.json().catch(() => null)) as { error?: string } | null
+                    setSave({ status: 'error', message: body?.error ?? 'Could not delete.' })
+                    return
+                  }
+                  onChanged()
+                  onClose()
+                }}
+                className="mt-2 text-xs text-red-700 underline underline-offset-2"
+              >
+                Delete this drawn parcel
+              </button>
+            )}
+
+            {isBusiness && (
+              <div className="mt-3">
+                <label className={labelCls} htmlFor="business_name">
+                  Business name
+                </label>
+                <input
+                  id="business_name"
+                  className={field}
+                  placeholder="e.g. Cloud's Moving & Storage"
+                  defaultValue={parcel.business_name ?? ''}
+                  onBlur={(e) => patchParcel({ business_name: e.target.value.trim() || null })}
+                />
+                <p className="mt-1 text-[11px] text-neutral-500">
+                  Shown on the map instead of a family name. Businesses are not counted as homes.
+                </p>
+              </div>
+            )}
+          </section>
+        )}
+
         {detail && detail.households.length === 0 && (
           <div className="px-4 py-10 text-center">
-            <p className="text-sm text-neutral-600">No household recorded on this parcel.</p>
+            <p className="text-sm text-neutral-600">
+              {isBusiness
+                ? 'No household here — this is a business.'
+                : 'No household recorded on this parcel.'}
+            </p>
             <button
               onClick={addHousehold}
               className="mt-3 rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
@@ -205,8 +328,10 @@ export default function ParcelPanel({
           <HouseholdForm
             key={household.id}
             household={household}
+            showAddress={target.kind === 'pin'}
+            canAddHousehold={target.kind === 'parcel'}
             onLocalChange={updateLocal}
-            onCommit={(body) => patch(household.id, body)}
+            onCommit={(body) => patchHousehold(household.id, body)}
             onDelete={() => deleteHousehold(household.id, household.family_name)}
             onAddHousehold={addHousehold}
           />
@@ -234,12 +359,16 @@ export default function ParcelPanel({
 
 function HouseholdForm({
   household,
+  showAddress,
+  canAddHousehold,
   onLocalChange,
   onCommit,
   onDelete,
   onAddHousehold,
 }: {
   household: Household
+  showAddress: boolean
+  canAddHousehold: boolean
   onLocalChange: (p: Partial<Household>) => void
   onCommit: (body: Record<string, unknown>) => void
   onDelete: () => void
@@ -250,24 +379,22 @@ function HouseholdForm({
   function commitPeople(next: Person[]) {
     setPeople(next)
     onCommit({
-      people: next.map((p) => ({
-        ...(p.id.startsWith('new:') ? {} : { id: p.id }),
-        full_name: p.full_name,
-        role: p.role,
-        phone: p.phone,
-        email: p.email,
-      })),
+      people: next
+        .filter((p) => p.full_name.trim())
+        .map((p) => ({
+          ...(p.id.startsWith('new:') ? {} : { id: p.id }),
+          full_name: p.full_name,
+          role: p.role,
+          phone: p.phone,
+          email: p.email,
+        })),
     })
   }
-
-  const field =
-    'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900'
-  const label = 'block text-xs font-medium text-neutral-700'
 
   return (
     <div className="space-y-4 px-4 py-4">
       <div>
-        <label className={label} htmlFor="family_name">
+        <label className={labelCls} htmlFor="family_name">
           Family name
         </label>
         <input
@@ -285,8 +412,24 @@ function HouseholdForm({
         />
       </div>
 
+      {/* Only pinned households need a typed address; parcels carry the county one. */}
+      {showAddress && (
+        <div>
+          <label className={labelCls} htmlFor="address">
+            Address
+          </label>
+          <input
+            id="address"
+            className={field}
+            placeholder="Street address"
+            defaultValue={household.address ?? ''}
+            onBlur={(e) => onCommit({ address: e.target.value.trim() || null })}
+          />
+        </div>
+      )}
+
       <div>
-        <label className={label} htmlFor="status">
+        <label className={labelCls} htmlFor="status">
           Status
         </label>
         <select
@@ -308,7 +451,7 @@ function HouseholdForm({
       </div>
 
       <div>
-        <label className={label} htmlFor="notes">
+        <label className={labelCls} htmlFor="notes">
           Notes
         </label>
         <textarea
@@ -438,12 +581,14 @@ function HouseholdForm({
         >
           Save
         </button>
-        <button
-          onClick={onAddHousehold}
-          className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-800"
-        >
-          Add household
-        </button>
+        {canAddHousehold && (
+          <button
+            onClick={onAddHousehold}
+            className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-800"
+          >
+            Add household
+          </button>
+        )}
         <button
           onClick={onDelete}
           className="ml-auto rounded-md px-3 py-2 text-sm text-red-700 underline underline-offset-2"

@@ -47,12 +47,25 @@ export const STATUS_COLORS: Record<HouseholdStatus, string> = {
  */
 export const NO_HOUSEHOLD_COLOR = '#94a3b8'
 
+/** Marked as a business: nobody lives there, so status colouring is meaningless. */
+export const BUSINESS_COLOR = '#a16207'
+
+/** Common areas, roads, retention basins — hidden behind a toggle by default. */
+export const COMMON_AREA_COLOR = '#d6d3d1'
+
 /**
  * Data-driven paint expression. Swapping this on the existing layer is what the
  * "Color by" dropdown will do in Phase 4 — the source is never re-rendered.
+ *
+ * Use type wins over household status: a business marked by hand should read as
+ * a business whether or not somebody once attached a household to it.
  */
 export const fillColorByStatus: unknown[] = [
   'case',
+  ['==', ['get', 'use'], 'business'],
+  BUSINESS_COLOR,
+  ['==', ['get', 'use'], 'common_area'],
+  COMMON_AREA_COLOR,
   ['==', ['get', 'householdCount'], 0],
   NO_HOUSEHOLD_COLOR,
   [
@@ -61,4 +74,12 @@ export const fillColorByStatus: unknown[] = [
     ...Object.entries(STATUS_COLORS).flatMap(([k, v]) => [k, v]),
     STATUS_COLORS.unknown,
   ],
+]
+
+/** Pinned households (no county parcel) use the same status palette as parcels. */
+export const pinColorByStatus: unknown[] = [
+  'match',
+  ['get', 'status'],
+  ...Object.entries(STATUS_COLORS).flatMap(([k, v]) => [k, v]),
+  STATUS_COLORS.unknown,
 ]
