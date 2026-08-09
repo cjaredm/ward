@@ -43,7 +43,10 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params
   const parsed = Patch.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid update', issues: parsed.error.issues }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid update', issues: parsed.error.issues },
+      { status: 400 },
+    )
   }
   const { people, ...fields } = parsed.data
 

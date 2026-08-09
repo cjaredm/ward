@@ -8,20 +8,24 @@
  */
 import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
+import { run } from './lib/run'
 
-const password = process.argv[2]
-if (!password) {
-  console.error("Usage: npm run hash-password -- 'your shared password'")
-  process.exit(1)
-}
-if (password.length < 12) {
-  console.error(`Password is ${password.length} characters. Use at least 12 — this is the only credential guarding member addresses and phone numbers.`)
-  process.exit(1)
-}
+run(async () => {
+  const password = process.argv[2]
+  if (!password) {
+    throw new Error("Usage: npm run hash-password -- 'your shared password'")
+  }
+  if (password.length < 12) {
+    throw new Error(
+      `Password is ${password.length} characters. Use at least 12 — this is the only credential ` +
+        'guarding member addresses and phone numbers.',
+    )
+  }
 
-const hash = await bcrypt.hash(password, 12)
+  const hash = await bcrypt.hash(password, 12)
 
-console.log('\nAdd these to .env.local and to Vercel -> Settings -> Environment Variables:\n')
-console.log(`WARD_APP_PASSWORD_HASH='${hash}'`)
-console.log(`AUTH_JWT_SECRET='${randomBytes(32).toString('base64')}'`)
-console.log('')
+  console.log('\nAdd these to .env.local and to Vercel -> Settings -> Environment Variables:\n')
+  console.log(`WARD_APP_PASSWORD_HASH='${hash}'`)
+  console.log(`AUTH_JWT_SECRET='${randomBytes(32).toString('base64')}'`)
+  console.log('')
+})

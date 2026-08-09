@@ -8,45 +8,50 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { withClient } from './lib/pg'
+import { run } from './lib/run'
 
 const MIGRATIONS_DIR = join(process.cwd(), 'migrations')
 
-await withClient(async (client) => {
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS _migrations (
-      name       text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
+run(() =>
+  withClient(async (client) => {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS _migrations (
+        name       text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )
+    `)
+
+    const applied = new Set(
+      (await client.query<{ name: string }>('SELECT name FROM _migrations')).rows.map(
+        (r) => r.name,
+      ),
     )
-  `)
 
-  const applied = new Set(
-    (await client.query<{ name: string }>('SELECT name FROM _migrations')).rows.map((r) => r.name),
-  )
+    const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort()
+    const pending = files.filter((f) => !applied.has(f))
 
-  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith('.sql')).sort()
-  const pending = files.filter((f) => !applied.has(f))
-
-  if (pending.length === 0) {
-    console.log(`Up to date — ${files.length} migration(s) already applied.`)
-    return
-  }
-
-  for (const file of pending) {
-    const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8')
-    process.stdout.write(`Applying ${file} ... `)
-    await client.query('BEGIN')
-    try {
-      // No parameters -> simple query protocol -> multiple statements per file are fine.
-      await client.query(sql)
-      await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file])
-      await client.query('COMMIT')
-      console.log('ok')
-    } catch (err) {
-      await client.query('ROLLBACK')
-      console.log('FAILED')
-      throw err
+    if (pending.length === 0) {
+      console.log(`Up to date — ${files.length} migration(s) already applied.`)
+      return
     }
-  }
 
-  console.log(`Applied ${pending.length} migration(s).`)
-})
+    for (const file of pending) {
+      const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8')
+      process.stdout.write(`Applying ${file} ... `)
+      await client.query('BEGIN')
+      try {
+        // No parameters -> simple query protocol -> multiple statements per file are fine.
+        await client.query(sql)
+        await client.query('INSERT INTO _migrations (name) VALUES ($1)', [file])
+        await client.query('COMMIT')
+        console.log('ok')
+      } catch (err) {
+        await client.query('ROLLBACK')
+        console.log('FAILED')
+        throw err
+      }
+    }
+
+    console.log(`Applied ${pending.length} migration(s).`)
+  }),
+)

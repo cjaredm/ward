@@ -109,12 +109,17 @@ export default function ParcelPanel({
       return
     }
     await load()
-    setActiveIdx((detail?.households.length ?? 0))
+    setActiveIdx(detail?.households.length ?? 0)
     onChanged()
   }
 
   async function deleteHousehold(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? This permanently removes the names, phone numbers and emails on this household.`)) return
+    if (
+      !confirm(
+        `Delete "${name}"? This permanently removes the names, phone numbers and emails on this household.`,
+      )
+    )
+      return
     const res = await fetch(`/api/households/${id}`, { method: 'DELETE' })
     if (!res.ok) {
       setSave({ status: 'error', message: 'Could not delete household.' })
@@ -413,7 +418,10 @@ function HouseholdForm({
                   </a>
                 )}
                 {p.email && (
-                  <a href={`mailto:${p.email}`} className="text-blue-700 underline underline-offset-2">
+                  <a
+                    href={`mailto:${p.email}`}
+                    className="text-blue-700 underline underline-offset-2"
+                  >
                     Email
                   </a>
                 )}

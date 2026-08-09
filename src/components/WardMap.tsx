@@ -1,14 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Map, {
-  Layer,
-  Source,
-  type MapLayerMouseEvent,
-  type MapRef,
-} from 'react-map-gl/maplibre'
+import Map, { Layer, Source, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import type { FillLayerSpecification, LineLayerSpecification, SymbolLayerSpecification } from 'maplibre-gl'
+import type {
+  FillLayerSpecification,
+  LineLayerSpecification,
+  SymbolLayerSpecification,
+} from 'maplibre-gl'
 import { FALLBACK_VIEW, MAP_STYLE_URL, STATUS_COLORS, fillColorByStatus } from '@/lib/map-style'
 import { STATUS_LABELS, type ParcelCollection } from '@/lib/types'
 import ParcelPanel from './ParcelPanel'
@@ -30,7 +29,9 @@ export default function WardMap({ actorName }: { actorName: string }) {
   const load = useCallback(async () => {
     setError(null)
     const [p, b] = await Promise.allSettled([
-      fetch('/api/parcels').then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status))))),
+      fetch('/api/parcels').then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+      ),
       fetch('/api/boundary').then((r) => (r.ok ? r.json() : null)),
     ])
     if (p.status === 'fulfilled') setParcels(p.value as ParcelCollection)
@@ -171,7 +172,9 @@ export default function WardMap({ actorName }: { actorName: string }) {
           </div>
 
           <p className="mt-1 text-neutral-500">
-            {loading ? 'Loading…' : `${counts.residential} homes · ${counts.withHouseholds} with a household`}
+            {loading
+              ? 'Loading…'
+              : `${counts.residential} homes · ${counts.withHouseholds} with a household`}
           </p>
 
           <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">

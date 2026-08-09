@@ -8,6 +8,7 @@
  */
 import type { Client } from 'pg'
 import { withClient } from './lib/pg'
+import { run } from './lib/run'
 
 const SERVICE_URL =
   process.env.PARCEL_SERVICE_URL ??
@@ -35,7 +36,10 @@ type Feature = {
 
 /** Fetch every parcel intersecting the boundary, following the 2000-record cap. */
 async function fetchParcels(esriRings: Ring[]): Promise<Feature[]> {
-  const geometry = JSON.stringify({ rings: esriRings, spatialReference: { wkid: 4326 } })
+  const geometry = JSON.stringify({
+    rings: esriRings,
+    spatialReference: { wkid: 4326 },
+  })
   const features: Feature[] = []
 
   for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -147,34 +151,35 @@ async function loadStaging(client: Client, features: Feature[]): Promise<number>
   return loaded
 }
 
-await withClient(async (client) => {
-  const boundary = await client.query<{ rings: string }>(
-    // ForcePolygonCW: Esri expects clockwise exterior rings.
-    `SELECT ST_AsGeoJSON(ST_ForcePolygonCW(geom)) AS rings FROM ward_boundary WHERE id = 1`,
-  )
-  if (boundary.rowCount === 0) {
-    throw new Error('ward_boundary is empty — run `npm run seed:boundary` first.')
-  }
-  const esriRings = (JSON.parse(boundary.rows[0].rings) as { coordinates: Ring[] }).coordinates
+run(() =>
+  withClient(async (client) => {
+    const boundary = await client.query<{ rings: string }>(
+      // ForcePolygonCW: Esri expects clockwise exterior rings.
+      `SELECT ST_AsGeoJSON(ST_ForcePolygonCW(geom)) AS rings FROM ward_boundary WHERE id = 1`,
+    )
+    if (boundary.rowCount === 0) {
+      throw new Error('ward_boundary is empty — run `npm run seed:boundary` first.')
+    }
+    const esriRings = (JSON.parse(boundary.rows[0].rings) as { coordinates: Ring[] }).coordinates
 
-  console.log('Fetching parcels from UGRC...')
-  const features = await fetchParcels(esriRings)
+    console.log('Fetching parcels from UGRC...')
+    const features = await fetchParcels(esriRings)
 
-  await client.query('BEGIN')
-  try {
-    const staged = await loadStaging(client, features)
+    await client.query('BEGIN')
+    try {
+      const staged = await loadStaging(client, features)
 
-    // Precise clip in PostGIS, not JS. ArcGIS `Intersects` catches parcels that
-    // merely touch the boundary; centroid containment matches how people actually
-    // think about "which ward is this house in".
-    const clipped = await client.query(
-      `DELETE FROM parcels_staging s
+      // Precise clip in PostGIS, not JS. ArcGIS `Intersects` catches parcels that
+      // merely touch the boundary; centroid containment matches how people actually
+      // think about "which ward is this house in".
+      const clipped = await client.query(
+        `DELETE FROM parcels_staging s
        USING ward_boundary w
        WHERE NOT ST_Contains(w.geom, s.centroid)`,
-    )
-    const kept = staged - (clipped.rowCount ?? 0)
+      )
+      const kept = staged - (clipped.rowCount ?? 0)
 
-    const upsert = await client.query<{ inserted: boolean }>(`
+      const upsert = await client.query<{ inserted: boolean }>(`
       INSERT INTO parcels (
         parcel_id, address, city, zip, account_num, own_type, coparcel_url,
         geom, centroid, area_sqm, county_current_at, imported_at, is_residential
@@ -200,62 +205,71 @@ await withClient(async (client) => {
         -- overrides and must survive every re-import.
       RETURNING (xmax = 0) AS inserted
     `)
-    const inserted = upsert.rows.filter((r) => r.inserted).length
-    const updated = upsert.rows.length - inserted
+      const inserted = upsert.rows.filter((r) => r.inserted).length
+      const updated = upsert.rows.length - inserted
 
-    // Parcels we hold that the county no longer returns inside the boundary.
-    const stale = await client.query<{ parcel_id: string; address: string | null; n: number }>(`
+      // Parcels we hold that the county no longer returns inside the boundary.
+      const stale = await client.query<{
+        parcel_id: string
+        address: string | null
+        n: number
+      }>(`
       SELECT p.parcel_id, p.address, count(h.id)::int AS n
       FROM parcels p
       LEFT JOIN households h ON h.parcel_id = p.parcel_id AND h.deleted_at IS NULL
       WHERE NOT EXISTS (SELECT 1 FROM parcels_staging s WHERE s.parcel_id = p.parcel_id)
       GROUP BY p.parcel_id, p.address
     `)
-    const orphanedWithHouseholds = stale.rows.filter((r) => r.n > 0)
-    const removable = stale.rows.filter((r) => r.n === 0).map((r) => r.parcel_id)
+      const orphanedWithHouseholds = stale.rows.filter((r) => r.n > 0)
+      const removable = stale.rows.filter((r) => r.n === 0).map((r) => r.parcel_id)
 
-    let removed = 0
-    if (removable.length > 0) {
-      const del = await client.query(`DELETE FROM parcels WHERE parcel_id = ANY($1::text[])`, [
-        removable,
-      ])
-      removed = del.rowCount ?? 0
-    }
+      let removed = 0
+      if (removable.length > 0) {
+        const del = await client.query(`DELETE FROM parcels WHERE parcel_id = ANY($1::text[])`, [
+          removable,
+        ])
+        removed = del.rowCount ?? 0
+      }
 
-    const summary = await client.query<{
-      total: number
-      residential: number
-      non_residential: number
-    }>(`
+      const summary = await client.query<{
+        total: number
+        residential: number
+        non_residential: number
+      }>(`
       SELECT count(*)::int AS total,
              count(*) FILTER (WHERE is_residential)::int     AS residential,
              count(*) FILTER (WHERE NOT is_residential)::int AS non_residential
       FROM parcels
     `)
 
-    await client.query('COMMIT')
+      await client.query('COMMIT')
 
-    const s = summary.rows[0]
-    console.log('\n--- import summary ---')
-    console.log(`fetched from service      ${features.length}`)
-    console.log(`staged (had PARCEL_ID)    ${staged}`)
-    console.log(`kept after centroid clip  ${kept}`)
-    console.log(`inserted                  ${inserted}`)
-    console.log(`updated                   ${updated}`)
-    console.log(`removed (stale, no data)  ${removed}`)
-    console.log(`\nparcels total             ${s.total}`)
-    console.log(`  residential             ${s.residential}`)
-    console.log(`  non-residential         ${s.non_residential}   (blank PARCEL_ADD; hidden by default)`)
+      const s = summary.rows[0]
+      console.log('\n--- import summary ---')
+      console.log(`fetched from service      ${features.length}`)
+      console.log(`staged (had PARCEL_ID)    ${staged}`)
+      console.log(`kept after centroid clip  ${kept}`)
+      console.log(`inserted                  ${inserted}`)
+      console.log(`updated                   ${updated}`)
+      console.log(`removed (stale, no data)  ${removed}`)
+      console.log(`\nparcels total             ${s.total}`)
+      console.log(`  residential             ${s.residential}`)
+      console.log(
+        `  non-residential         ${s.non_residential}   (blank PARCEL_ADD; hidden by default)`,
+      )
 
-    if (orphanedWithHouseholds.length > 0) {
-      console.log(`\n!! ${orphanedWithHouseholds.length} parcel(s) with households no longer returned by the county.`)
-      console.log('   Kept in place — review by hand:')
-      for (const r of orphanedWithHouseholds) {
-        console.log(`   - ${r.parcel_id}  ${r.address ?? '(no address)'}  (${r.n} household(s))`)
+      if (orphanedWithHouseholds.length > 0) {
+        console.log(
+          `\n!! ${orphanedWithHouseholds.length} parcel(s) with households no longer returned by the county.`,
+        )
+        console.log('   Kept in place — review by hand:')
+        for (const r of orphanedWithHouseholds) {
+          console.log(`   - ${r.parcel_id}  ${r.address ?? '(no address)'}  (${r.n} household(s))`)
+        }
       }
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
     }
-  } catch (err) {
-    await client.query('ROLLBACK')
-    throw err
-  }
-})
+  }),
+)

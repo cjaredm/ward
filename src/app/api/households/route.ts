@@ -22,7 +22,10 @@ export async function POST(req: NextRequest) {
 
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid household', issues: parsed.error.issues }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Invalid household', issues: parsed.error.issues },
+      { status: 400 },
+    )
   }
   const { parcel_id, family_name, status } = parsed.data
 
