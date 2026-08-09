@@ -18,6 +18,8 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Vendored maplibre worker bundle, copied in by scripts/copy-maplibre-worker.mjs.
+      "public/**",
     ],
   },
 ];

@@ -25,9 +25,13 @@ export const config = {
   matcher: [
     /*
      * Everything except:
-     *   /login, /api/auth/* (the way in)
-     *   _next/*, favicon, robots (static)
+     *   /login, /api/auth/*            the way in
+     *   _next/*, favicon, robots       framework static assets
+     *   maplibre-gl-*.mjs              vendored worker bundle served from public/;
+     *                                  a redirect here answers a module-worker
+     *                                  request with HTML and the map silently
+     *                                  fails to render. Contains no ward data.
      */
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt).*)',
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|maplibre-gl-).*)',
   ],
 }

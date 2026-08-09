@@ -3,14 +3,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Map, { Layer, Source, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import type {
-  FillLayerSpecification,
-  LineLayerSpecification,
-  SymbolLayerSpecification,
+import {
+  setWorkerUrl,
+  type FillLayerSpecification,
+  type LineLayerSpecification,
+  type SymbolLayerSpecification,
 } from 'maplibre-gl'
-import { FALLBACK_VIEW, MAP_STYLE_URL, STATUS_COLORS, fillColorByStatus } from '@/lib/map-style'
+import {
+  FALLBACK_VIEW,
+  MAP_STYLE_URL,
+  MIN_ZOOM,
+  NO_HOUSEHOLD_COLOR,
+  STATUS_COLORS,
+  fillColorByStatus,
+  padBounds,
+} from '@/lib/map-style'
 import { STATUS_LABELS, type ParcelCollection } from '@/lib/types'
 import ParcelPanel from './ParcelPanel'
+
+/**
+ * maplibre-gl v6 loads its worker from a separate file via
+ * `new URL('./maplibre-gl-worker.mjs', import.meta.url)`, which Next's bundler
+ * does not emit. Left alone the request 404s to an HTML page, the browser
+ * rejects it for MIME type, the worker never starts and nothing renders.
+ * scripts/copy-maplibre-worker.mjs puts it (and the sibling it imports) in
+ * public/ on every dev and build. Runs before the first Map mounts.
+ */
+setWorkerUrl('/maplibre-gl-worker.mjs')
 
 const EMPTY: ParcelCollection = { type: 'FeatureCollection', features: [] }
 
@@ -44,11 +63,13 @@ export default function WardMap({ actorName }: { actorName: string }) {
     void load()
   }, [load])
 
-  // Fit to the ward once the boundary arrives.
+  // Fit to the ward once the boundary arrives, and pen the map in around it so
+  // panning away never loads basemap tiles for the rest of the globe.
   useEffect(() => {
-    if (!boundary?.bbox || !mapRef.current) return
+    const map = mapRef.current
+    if (!boundary?.bbox || !map) return
     const [w, s, e, n] = boundary.bbox
-    mapRef.current.fitBounds(
+    map.fitBounds(
       [
         [w, s],
         [e, n],
@@ -56,6 +77,11 @@ export default function WardMap({ actorName }: { actorName: string }) {
       { padding: 40, duration: 0 },
     )
   }, [boundary])
+
+  const maxBounds = useMemo(
+    () => (boundary?.bbox ? padBounds(boundary.bbox) : undefined),
+    [boundary],
+  )
 
   const parcelFilter = useMemo(
     () => (showNonResidential ? undefined : (['get', 'residential'] as unknown as never)),
@@ -79,8 +105,8 @@ export default function WardMap({ actorName }: { actorName: string }) {
     source: 'parcels',
     filter: parcelFilter,
     paint: {
-      'line-color': ['case', ['==', ['get', 'pid'], selected ?? ''], '#111827', '#64748b'],
-      'line-width': ['case', ['==', ['get', 'pid'], selected ?? ''], 3.5, 0.8],
+      'line-color': ['case', ['==', ['get', 'pid'], selected ?? ''], '#111827', '#475569'],
+      'line-width': ['case', ['==', ['get', 'pid'], selected ?? ''], 3.5, 1.1],
     },
   }
 
@@ -133,6 +159,9 @@ export default function WardMap({ actorName }: { actorName: string }) {
         ref={mapRef}
         mapStyle={MAP_STYLE_URL}
         initialViewState={FALLBACK_VIEW}
+        minZoom={MIN_ZOOM}
+        maxZoom={19}
+        maxBounds={maxBounds}
         interactiveLayerIds={['parcel-fill']}
         onClick={onClick}
         onMouseMove={onMouseMove}
@@ -187,6 +216,13 @@ export default function WardMap({ actorName }: { actorName: string }) {
                 {label}
               </li>
             ))}
+            <li className="flex items-center gap-1.5 text-neutral-700">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                style={{ background: NO_HOUSEHOLD_COLOR }}
+              />
+              No household
+            </li>
           </ul>
 
           <label className="mt-2 flex items-center gap-2 border-t border-neutral-200 pt-2 text-neutral-700">
