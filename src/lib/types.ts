@@ -27,8 +27,6 @@ export type ParcelProperties = {
   residential: boolean
   familyName: string | null
   status: HouseholdStatus | null
-  district: string | null
-  group: string | null
   householdCount: number
 }
 
@@ -58,9 +56,6 @@ export type Household = {
   parcel_id: string
   family_name: string
   status: HouseholdStatus
-  ministering_companionship: string | null
-  ministering_district: string | null
-  organization_group: string | null
   notes: string | null
   updated_at: string
   updated_by: string | null

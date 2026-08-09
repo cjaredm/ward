@@ -307,44 +307,6 @@ function HouseholdForm({
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={label} htmlFor="district">
-            Ministering district
-          </label>
-          <input
-            id="district"
-            className={field}
-            defaultValue={household.ministering_district ?? ''}
-            onBlur={(e) => onCommit({ ministering_district: e.target.value.trim() || null })}
-          />
-        </div>
-        <div>
-          <label className={label} htmlFor="group">
-            Organization
-          </label>
-          <input
-            id="group"
-            className={field}
-            placeholder="EQ / RS"
-            defaultValue={household.organization_group ?? ''}
-            onBlur={(e) => onCommit({ organization_group: e.target.value.trim() || null })}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className={label} htmlFor="companionship">
-          Ministering companionship
-        </label>
-        <input
-          id="companionship"
-          className={field}
-          defaultValue={household.ministering_companionship ?? ''}
-          onBlur={(e) => onCommit({ ministering_companionship: e.target.value.trim() || null })}
-        />
-      </div>
-
       <div>
         <label className={label} htmlFor="notes">
           Notes

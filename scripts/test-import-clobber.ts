@@ -33,8 +33,8 @@ run(async () => {
     console.log(`Using parcel ${parcelId}`)
 
     const h = await client.query<{ id: string }>(
-      `INSERT INTO households (parcel_id, family_name, status, ministering_district, notes, updated_by)
-       VALUES ($1, $2, 'active', 'District 7', $3, 'clobber-test')
+      `INSERT INTO households (parcel_id, family_name, status, notes, updated_by)
+       VALUES ($1, $2, 'active', $3, 'clobber-test')
        RETURNING id`,
       [parcelId, MARKER, MARKER],
     )
@@ -64,10 +64,9 @@ run(async () => {
     const h = await client.query<{
       family_name: string
       status: string
-      ministering_district: string | null
       notes: string | null
     }>(
-      `SELECT family_name, status, ministering_district, notes
+      `SELECT family_name, status, notes
        FROM households WHERE id = $1 AND deleted_at IS NULL`,
       [seeded.householdId],
     )
@@ -75,7 +74,6 @@ run(async () => {
     if (h.rowCount === 1) {
       check('family_name intact', h.rows[0].family_name, MARKER)
       check('status intact', h.rows[0].status, 'active')
-      check('ministering_district intact', h.rows[0].ministering_district, 'District 7')
       check('notes intact', h.rows[0].notes, MARKER)
     }
 

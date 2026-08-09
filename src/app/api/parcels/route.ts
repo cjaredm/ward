@@ -43,14 +43,12 @@ export async function GET() {
           'residential', p.is_residential,
           'familyName', h.family_name,
           'status', h.status,
-          'district', h.ministering_district,
-          'group', h.organization_group,
           'householdCount', coalesce(h.n, 0)
         )
       ) AS f
       FROM parcels p
       LEFT JOIN LATERAL (
-        SELECT family_name, status, ministering_district, organization_group,
+        SELECT family_name, status,
                count(*) OVER () AS n
         FROM households
         WHERE parcel_id = p.parcel_id AND deleted_at IS NULL

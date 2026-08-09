@@ -25,9 +25,6 @@ const PersonInput = z.object({
 const Patch = z.object({
   family_name: z.string().trim().min(1).max(120).optional(),
   status: z.enum(HOUSEHOLD_STATUSES).optional(),
-  ministering_companionship: nullableText(200).optional(),
-  ministering_district: nullableText(100).optional(),
-  organization_group: nullableText(100).optional(),
   notes: nullableText(4000).optional(),
   people: z.array(PersonInput).max(30).optional(),
 })
@@ -68,12 +65,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     UPDATE households SET
       family_name = coalesce(${fields.family_name ?? null}::text, family_name),
       status      = coalesce(${fields.status ?? null}::text::household_status, status),
-      ministering_companionship = CASE WHEN ${has('ministering_companionship')}::boolean
-        THEN ${fields.ministering_companionship ?? null}::text ELSE ministering_companionship END,
-      ministering_district = CASE WHEN ${has('ministering_district')}::boolean
-        THEN ${fields.ministering_district ?? null}::text ELSE ministering_district END,
-      organization_group = CASE WHEN ${has('organization_group')}::boolean
-        THEN ${fields.organization_group ?? null}::text ELSE organization_group END,
       notes = CASE WHEN ${has('notes')}::boolean
         THEN ${fields.notes ?? null}::text ELSE notes END,
       updated_at = now(),
@@ -136,7 +127,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   await sql.transaction([
     sql`DELETE FROM people WHERE household_id = ${id}`,
     sql`UPDATE households SET deleted_at = now(), updated_at = now(), updated_by = ${actor},
-         notes = NULL, ministering_companionship = NULL
+         notes = NULL
          WHERE id = ${id} AND deleted_at IS NULL`,
     sql`INSERT INTO audit_log (actor, action, entity_id, diff)
         VALUES (${actor}, 'delete_household', ${id}, '{}'::jsonb)`,
