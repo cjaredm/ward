@@ -1,6 +1,17 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  /**
+   * `next build` and `next dev` both write to .next, and a build run while a dev
+   * server is up leaves that directory half production / half dev with no
+   * BUILD_ID — the dev server then 500s on every page until it is restarted and
+   * .next is cleared.
+   *
+   * Set NEXT_DIST_DIR to build somewhere else:
+   *   NEXT_DIST_DIR=.next-verify npm run build
+   */
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   async headers() {
     return [
       {
