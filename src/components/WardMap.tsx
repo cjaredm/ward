@@ -22,7 +22,14 @@ import {
   padBounds,
   pinColorByStatus,
 } from '@/lib/map-style'
-import { STATUS_LABELS, type ParcelCollection, type ParcelFeature } from '@/lib/types'
+import {
+  PARCEL_USES,
+  STATUS_LABELS,
+  USE_LABELS,
+  type ParcelCollection,
+  type ParcelFeature,
+  type ParcelUse,
+} from '@/lib/types'
 import ParcelPanel, { type PanelTarget } from './ParcelPanel'
 
 /**
@@ -52,34 +59,63 @@ export default function WardMap({ actorName }: { actorName: string }) {
   /** Vertices of the outline being traced, or null when not drawing. */
   const [draft, setDraft] = useState<[number, number][] | null>(null)
   const [busy, setBusy] = useState(false)
+  /** Bulk-edit mode: click toggles a parcel, shift-drag box-selects. */
+  const [selectMode, setSelectMode] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+  const [box, setBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const boxStart = useRef<{ x: number; y: number } | null>(null)
 
+  /**
+   * Refreshes parcel data only.
+   *
+   * Called after every mutation, so it deliberately does NOT touch `boundary`:
+   * re-fetching it produced a new object identity, which re-fired the fitBounds
+   * effect below and threw the camera back to the whole ward every time the user
+   * saved a household.
+   *
+   * cache: 'no-store' is also load-bearing. /api/parcels sends
+   * `private, max-age=30`, and this runs immediately after a write — without it
+   * the browser serves its own 30-second-old copy and a just-drawn parcel or
+   * just-added household appears to have vanished.
+   */
   const load = useCallback(async () => {
     setError(null)
-    // cache: 'no-store' is load-bearing. /api/parcels sends
-    // `private, max-age=30`, and load() is called immediately after every
-    // mutation — without this the browser serves its own 30-second-old copy and
-    // a just-drawn parcel or just-added household appears to have vanished.
-    const [p, b] = await Promise.allSettled([
-      fetch('/api/parcels', { cache: 'no-store' }).then((r) =>
-        r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
-      ),
-      fetch('/api/boundary', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
-    ])
-    if (p.status === 'fulfilled') setParcels(p.value as ParcelCollection)
-    else setError('Could not load parcels. Reload the page.')
-    if (b.status === 'fulfilled' && b.value) setBoundary(b.value as Boundary)
-    setLoading(false)
+    try {
+      const res = await fetch('/api/parcels', { cache: 'no-store' })
+      if (!res.ok) throw new Error(String(res.status))
+      setParcels((await res.json()) as ParcelCollection)
+    } catch {
+      setError('Could not load parcels. Reload the page.')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // Fit to the ward once the boundary arrives, and pen the map in around it so
-  // panning away never loads basemap tiles for the rest of the globe.
+  // The ward boundary is fixed for the life of the page, so it is fetched once.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/boundary', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((b) => {
+        if (!cancelled && b) setBoundary(b as Boundary)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Frame the ward once, when the boundary first arrives. Guarded by a ref so a
+  // re-render can never yank the camera out from under someone mid-edit.
+  const framed = useRef(false)
   useEffect(() => {
     const map = mapRef.current
-    if (!boundary?.bbox || !map) return
+    if (!boundary?.bbox || !map || framed.current) return
+    framed.current = true
     const [w, s, e, n] = boundary.bbox
     map.fitBounds(
       [
@@ -102,7 +138,9 @@ export default function WardMap({ actorName }: { actorName: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (draft) setDraft(null)
+        if (picked.length) setPicked([])
+        else if (selectMode) setSelectMode(false)
+        else if (draft) setDraft(null)
         else if (placingPin) setPlacingPin(false)
         else setSelected(null)
         return
@@ -114,7 +152,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [placingPin, draft])
+  }, [placingPin, draft, selectMode, picked.length])
 
   // Common areas are hidden by default: roads and retention basins are noise
   // when you are looking for houses.
@@ -122,7 +160,11 @@ export default function WardMap({ actorName }: { actorName: string }) {
     () =>
       (showCommonAreas
         ? ['==', ['get', 'kind'], 'parcel']
-        : ['all', ['==', ['get', 'kind'], 'parcel'], ['!=', ['get', 'use'], 'common_area']]) as never,
+        : [
+            'all',
+            ['==', ['get', 'kind'], 'parcel'],
+            ['!=', ['get', 'use'], 'common_area'],
+          ]) as never,
     [showCommonAreas],
   )
   const pinFilter = useMemo(() => ['==', ['get', 'kind'], 'pin'] as never, [])
@@ -144,10 +186,29 @@ export default function WardMap({ actorName }: { actorName: string }) {
     source: 'parcels',
     filter: parcelFilter,
     paint: {
-      'line-color': ['case', ['==', ['get', 'pid'], selectedId(selected)], '#111827', '#475569'],
-      'line-width': ['case', ['==', ['get', 'pid'], selectedId(selected)], 3.5, 1.1],
+      'line-color': [
+        'case',
+        ['in', ['get', 'pid'], ['literal', picked]],
+        '#2563eb',
+        ['==', ['get', 'pid'], selectedId(selected)],
+        '#111827',
+        '#475569',
+      ],
+      'line-width': [
+        'case',
+        ['in', ['get', 'pid'], ['literal', picked]],
+        3,
+        ['==', ['get', 'pid'], selectedId(selected)],
+        3.5,
+        1.1,
+      ],
       // Hand-drawn parcels read as approximate, because they are.
-      'line-dasharray': ['case', ['==', ['get', 'source'], 'manual'], ['literal', [2, 1.5]], ['literal', [1, 0]]],
+      'line-dasharray': [
+        'case',
+        ['==', ['get', 'source'], 'manual'],
+        ['literal', [2, 1.5]],
+        ['literal', [1, 0]],
+      ],
     },
   }
 
@@ -250,12 +311,110 @@ export default function WardMap({ actorName }: { actorName: string }) {
     }
   }, [draft, load])
 
+  /**
+   * Shift-drag box select.
+   *
+   * MapLibre binds shift-drag to box *zoom*, so that handler is disabled while
+   * this mode is on, otherwise dragging a selection would fly the camera instead.
+   */
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map) return
+    if (selectMode) map.boxZoom.disable()
+    else map.boxZoom.enable()
+  }, [selectMode])
+
+  const onMouseDown = useCallback(
+    (e: MapLayerMouseEvent) => {
+      if (!selectMode || !e.originalEvent.shiftKey) return
+      e.preventDefault()
+      boxStart.current = { x: e.point.x, y: e.point.y }
+      setBox({ x1: e.point.x, y1: e.point.y, x2: e.point.x, y2: e.point.y })
+    },
+    [selectMode],
+  )
+
+  const onMouseUp = useCallback(() => {
+    const start = boxStart.current
+    boxStart.current = null
+    if (!start || !box) {
+      setBox(null)
+      return
+    }
+    const map = mapRef.current?.getMap()
+    if (map) {
+      const hits = map.queryRenderedFeatures(
+        [
+          [Math.min(box.x1, box.x2), Math.min(box.y1, box.y2)],
+          [Math.max(box.x1, box.x2), Math.max(box.y1, box.y2)],
+        ],
+        { layers: ['parcel-fill'] },
+      )
+      const pids = hits
+        .map((f) => f.properties?.pid)
+        .filter((v): v is string => typeof v === 'string')
+      setPicked((prev) => Array.from(new Set([...prev, ...pids])))
+    }
+    setBox(null)
+  }, [box])
+
+  const applyBulk = useCallback(
+    async (use_type: ParcelUse) => {
+      if (picked.length === 0) return
+      setBusy(true)
+      try {
+        const res = await fetch('/api/parcels/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parcel_ids: picked, use_type }),
+        })
+        if (!res.ok) {
+          setError('Could not update those parcels.')
+          return
+        }
+        setPicked([])
+        await load()
+      } finally {
+        setBusy(false)
+      }
+    },
+    [picked, load],
+  )
+
+  const undoBulk = useCallback(async () => {
+    if (!confirm('Undo the most recent bulk change? Those parcels go back to how they were.')) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/parcels/bulk/undo', { method: 'POST' })
+      const body = (await res.json().catch(() => null)) as
+        | { restored?: number; error?: string }
+        | null
+      if (!res.ok) {
+        setError(body?.error ?? 'Could not undo.')
+        return
+      }
+      setPicked([])
+      await load()
+      setError(`Restored ${body?.restored ?? 0} parcels.`)
+      setTimeout(() => setError(null), 6000)
+    } finally {
+      setBusy(false)
+    }
+  }, [load])
+
   const onClick = useCallback(
     (e: MapLayerMouseEvent) => {
       // Tracing swallows clicks: every one adds a vertex rather than selecting
       // whatever happens to be underneath.
       if (draft) {
         setDraft((d) => [...(d ?? []), [e.lngLat.lng, e.lngLat.lat]])
+        return
+      }
+      // In bulk mode a click toggles membership instead of opening the panel.
+      if (selectMode) {
+        const pid = e.features?.[0]?.properties?.pid
+        if (typeof pid !== 'string') return
+        setPicked((prev) => (prev.includes(pid) ? prev.filter((p) => p !== pid) : [...prev, pid]))
         return
       }
       if (placingPin) {
@@ -271,7 +430,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         setSelected(null)
       }
     },
-    [placingPin, addPinAt, draft],
+    [placingPin, addPinAt, draft, selectMode],
   )
 
   /** The outline being traced: filled area once it can close, plus the vertices. */
@@ -299,6 +458,11 @@ export default function WardMap({ actorName }: { actorName: string }) {
   }, [draft])
 
   const onMouseMove = useCallback((e: MapLayerMouseEvent) => {
+    if (boxStart.current) {
+      const s = boxStart.current
+      setBox({ x1: s.x, y1: s.y, x2: e.point.x, y2: e.point.y })
+      return
+    }
     const props = e.features?.[0]?.properties
     const id = props?.kind === 'pin' ? props.hid : props?.pid
     setHovered(typeof id === 'string' ? id : null)
@@ -328,9 +492,11 @@ export default function WardMap({ actorName }: { actorName: string }) {
         maxBounds={maxBounds}
         interactiveLayerIds={['parcel-fill', 'pin-circle']}
         onClick={onClick}
+        onMouseDown={onMouseDown}
+        onMouseUp={onMouseUp}
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHovered(null)}
-        cursor={draft || placingPin ? 'crosshair' : hovered ? 'pointer' : 'grab'}
+        cursor={draft || placingPin || selectMode ? 'crosshair' : hovered ? 'pointer' : 'grab'}
         style={{ width: '100%', height: '100%' }}
       >
         <Source id="parcels" type="geojson" data={parcels}>
@@ -486,6 +652,17 @@ export default function WardMap({ actorName }: { actorName: string }) {
                 </button>
                 <button
                   type="button"
+                  onClick={() => {
+                    setPlacingPin(false)
+                    setSelected(null)
+                    setSelectMode(true)
+                  }}
+                  className="w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-800"
+                >
+                  Select many parcels
+                </button>
+                <button
+                  type="button"
                   onClick={() => setPlacingPin((v) => !v)}
                   aria-pressed={placingPin}
                   className={`w-full rounded-md px-2.5 py-1.5 text-xs font-medium ${
@@ -494,9 +671,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
                       : 'border border-neutral-300 text-neutral-800'
                   }`}
                 >
-                  {placingPin
-                    ? 'Click the map to place it — Esc to cancel'
-                    : 'Drop a pin instead'}
+                  {placingPin ? 'Click the map to place it — Esc to cancel' : 'Drop a pin instead'}
                 </button>
               </>
             )}
@@ -509,8 +684,79 @@ export default function WardMap({ actorName }: { actorName: string }) {
         </div>
       </div>
 
+      {/* Drag rectangle, drawn in screen space over the canvas. */}
+      {box && (
+        <div
+          className="pointer-events-none absolute z-10 border-2 border-blue-600 bg-blue-500/20"
+          style={{
+            left: Math.min(box.x1, box.x2),
+            top: Math.min(box.y1, box.y2),
+            width: Math.abs(box.x2 - box.x1),
+            height: Math.abs(box.y2 - box.y1),
+          }}
+        />
+      )}
+
+      {/* Bulk action bar */}
+      {selectMode && (
+        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur sm:right-[26rem] sm:inset-x-auto sm:left-0">
+          <span className="font-medium text-neutral-900">
+            {picked.length} parcel{picked.length === 1 ? '' : 's'} selected
+          </span>
+          <span className="hidden text-neutral-500 sm:inline">
+            Click to toggle · Shift-drag to box-select
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <select
+              value=""
+              disabled={picked.length === 0 || busy}
+              onChange={(e) => {
+                const v = e.target.value
+                e.currentTarget.value = ''
+                if (v) void applyBulk(v as ParcelUse)
+              }}
+              className="rounded-md border border-neutral-300 px-2 py-1.5 text-xs disabled:opacity-40"
+            >
+              <option value="">Set type to…</option>
+              {PARCEL_USES.map((u) => (
+                <option key={u} value={u}>
+                  {USE_LABELS[u]}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={undoBulk}
+              disabled={busy}
+              title="Restore the parcels changed by the last bulk update"
+              className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-neutral-800 disabled:opacity-40"
+            >
+              Undo last bulk
+            </button>
+            <button
+              type="button"
+              onClick={() => setPicked([])}
+              disabled={picked.length === 0}
+              className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-neutral-800 disabled:opacity-40"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectMode(false)
+                setPicked([])
+              }}
+              className="rounded-md bg-neutral-900 px-2.5 py-1.5 font-medium text-white"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && (
-        <div className="absolute bottom-3 left-3 z-10 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg">
+        <div className="absolute bottom-3 left-3 z-30 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg">
           {error}
         </div>
       )}
