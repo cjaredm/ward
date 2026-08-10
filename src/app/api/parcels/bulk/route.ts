@@ -18,11 +18,11 @@ const Body = z.object({
  * Marking a commercial strip one parcel at a time is the slowest part of setting
  * this map up, and every click is a round trip. This is a single statement.
  *
- * business_name is deliberately NOT settable here: names are per-parcel, and a
+ * Business names are deliberately NOT settable here: they are per-parcel, and a
  * bulk write would stamp the same one across a whole selection.
  *
- * The audit row records each parcel's PRIOR use_type and business_name, not just
- * a count. One mis-aimed box select can retype a hundred parcels, and without the
+ * The audit row records each parcel's PRIOR use_type and in_ward, not just a
+ * count. One mis-aimed box select can retype a hundred parcels, and without the
  * before-state there is nothing to undo from — which is exactly how a batch of
  * hand-classified parcels got lost once already. /api/parcels/bulk/undo replays it.
  */
@@ -49,18 +49,13 @@ export async function POST(req: NextRequest) {
 
   const rows = (await sql`
     WITH before AS (
-      SELECT parcel_id, use_type::text AS use_type, business_name, in_ward
+      SELECT parcel_id, use_type::text AS use_type, in_ward
       FROM parcels WHERE parcel_id = ANY(${parcel_ids}::text[])
     ),
     updated AS (
       UPDATE parcels SET
         use_type = coalesce(${use_type ?? null}::text::parcel_use, use_type),
         in_ward  = coalesce(${in_ward ?? null}::boolean, in_ward),
-        -- Moving a parcel away from 'business' clears the stale business name;
-        -- leaving it behind puts a shop name on somebody's house.
-        business_name = CASE
-          WHEN ${use_type ?? null}::text IS NOT NULL AND ${use_type ?? null}::text <> 'business'
-          THEN NULL ELSE business_name END,
         -- Marks these as carrying ward work, so a redrawn boundary can never
         -- delete them out from under the person who classified them.
         ward_edited_at = now()

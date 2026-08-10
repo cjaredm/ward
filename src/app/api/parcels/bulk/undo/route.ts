@@ -10,8 +10,9 @@ const Body = z.object({ undo_id: z.union([z.string(), z.number()]).optional() })
 /**
  * Reverts a bulk parcel update using the before-state captured in its audit row.
  *
- * With no undo_id, reverts the most recent bulk update. Restores use_type,
- * business_name and in_ward exactly as they were, per parcel.
+ * With no undo_id, reverts the most recent bulk update. Restores use_type and
+ * in_ward exactly as they were, per parcel. Audit rows written before businesses
+ * moved to their own table also carry a business_name, which is simply ignored.
  */
 export async function POST(req: NextRequest) {
   let actor: string
@@ -47,7 +48,6 @@ export async function POST(req: NextRequest) {
   const restored = (await sql`
     UPDATE parcels p SET
       use_type      = (b->>'use_type')::parcel_use,
-      business_name = b->>'business_name',
       in_ward       = (b->>'in_ward')::boolean
     FROM jsonb_array_elements(${JSON.stringify(found[0].prior)}::jsonb) AS b
     WHERE p.parcel_id = b->>'parcel_id'

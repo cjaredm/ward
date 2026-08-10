@@ -1,0 +1,1280 @@
+{
+ "release": "2026-07-22.0",
+ "bbox": {
+  "west": -113.496,
+  "south": 37.104,
+  "east": -113.472,
+  "north": 37.121
+ },
+ "places": [
+  {
+   "id": "034d27b8-9d67-4a3b-a8ff-12a68e3a2c16",
+   "name": "1st Rate Mortgage",
+   "category": "mortgage_broker",
+   "address": "1530 E Scenic Sunrise Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4827652,
+   "lat": 37.1093788
+  },
+  {
+   "id": "daae1b5d-5670-4826-9cbb-6b3251e15d09",
+   "name": "A J Construction",
+   "category": "contractor",
+   "address": "1111 S 1900 E # 2",
+   "confidence": 0.77,
+   "lng": -113.4758148,
+   "lat": 37.1178207
+  },
+  {
+   "id": "4ac4a0dc-b4fc-4735-b8cf-0e2b85299cb5",
+   "name": "A Plus Garage Door Repair",
+   "category": "garage_door_service",
+   "address": "1562 Arabian Way Ste 1",
+   "confidence": 0.9655,
+   "lng": -113.491745,
+   "lat": 37.1083946
+  },
+  {
+   "id": "117a3b93-0d42-41ab-9e27-3d9349732010",
+   "name": "A Sorensen Plumbing",
+   "category": "plumbing",
+   "address": "1554 Midway St",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4822845,
+   "lat": 37.1107254
+  },
+  {
+   "id": "d8aaddbd-c613-4f88-9168-e2236ebefaf8",
+   "name": "A.S.E Auto Center",
+   "category": "automotive_repair",
+   "address": "1460 E Washington Dam Rd",
+   "confidence": 0.7786278128623962,
+   "lng": -113.4837418,
+   "lat": 37.111557
+  },
+  {
+   "id": "d735f7f3-7813-47b6-a889-e9636c1148c3",
+   "name": "Air Duct Boss",
+   "category": "damage_restoration",
+   "address": "927 E Walkara Cv",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4938049,
+   "lat": 37.1182098
+  },
+  {
+   "id": "6ff5a804-0120-4901-9e8a-c44b1a97eede",
+   "name": "Alliance Fire & Safety",
+   "category": "fire_protection_service",
+   "address": "1433 E Ridge St",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4845047,
+   "lat": 37.1133537
+  },
+  {
+   "id": "92dae9d9-34d6-4b58-9060-3eed0aa76dbb",
+   "name": "Alta Designs LLC.",
+   "category": "printing_services",
+   "address": "1488 E Ridge St Unit 1",
+   "confidence": 0.85,
+   "lng": -113.4837875,
+   "lat": 37.1088028
+  },
+  {
+   "id": "15efdbff-9910-4c7b-bd90-3441cfd4ef28",
+   "name": "American Gear Company",
+   "category": "industrial_equipment",
+   "address": "1529 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4790802,
+   "lat": 37.1096535
+  },
+  {
+   "id": "cb1a61c1-e44c-4025-8eb3-49da76ec8428",
+   "name": "Atv And Jeep Adventure Tours",
+   "category": "tours",
+   "address": "1372 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4821701,
+   "lat": 37.1119537
+  },
+  {
+   "id": "714f539a-bef2-4585-845a-f37bc6847472",
+   "name": "Auto Access",
+   "category": "used_car_dealer",
+   "address": "1502 E Washington Dam Rd",
+   "confidence": 0.75,
+   "lng": -113.4832077,
+   "lat": 37.1118202
+  },
+  {
+   "id": "e380c01d-6f53-45b5-8ec5-af533b356a03",
+   "name": "Auto Body Central",
+   "category": "auto_body_shop",
+   "address": "1367 S Sandhill Dr",
+   "confidence": 0.9902192950248718,
+   "lng": -113.4814682,
+   "lat": 37.1118431
+  },
+  {
+   "id": "31e057f9-b1d8-4ef1-997f-2155129c5ac0",
+   "name": "B & B Steel Fabrication",
+   "category": "construction_services",
+   "address": "1785 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4788742,
+   "lat": 37.1141968
+  },
+  {
+   "id": "76837de1-c0cc-4ca2-8c25-1bfc9e0c972c",
+   "name": "Barco",
+   "category": "freight_and_cargo_service",
+   "address": "1111 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4757843,
+   "lat": 37.1170387
+  },
+  {
+   "id": "cce378a4-2e37-405f-a7d6-6674254f4b9d",
+   "name": "Bavarian Werkstatte",
+   "category": "automotive_repair",
+   "address": "960 S 1900 E #5",
+   "confidence": 0.77,
+   "lng": -113.476181,
+   "lat": 37.1175232
+  },
+  {
+   "id": "9cd395b6-f0e2-42e3-b886-af7bf12f4974",
+   "name": "Bavarian Werkstatte",
+   "category": "automotive_repair",
+   "address": "1363 E Washington Dam Rd",
+   "confidence": 0.9902192950248718,
+   "lng": -113.4858856,
+   "lat": 37.1117096
+  },
+  {
+   "id": "2928ac72-f6d6-4589-b657-c74ce0c2f58f",
+   "name": "Baxter Dance Training",
+   "category": "dance_school",
+   "address": "1392 E Ridge St",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4850693,
+   "lat": 37.1125908
+  },
+  {
+   "id": "b07f0b9e-ca86-4ff0-a329-4d5a384e9f57",
+   "name": "Bear River Storage",
+   "category": "self_storage_facility",
+   "address": "1205 S Sandhill Dr",
+   "confidence": 0.9902192950248718,
+   "lng": -113.4813766,
+   "lat": 37.1136703
+  },
+  {
+   "id": "96f627c0-ceb6-4fea-8a1a-a70c87ac9f7a",
+   "name": "Big City Insulation",
+   "category": "contractor",
+   "address": "1140 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4769058,
+   "lat": 37.1168823
+  },
+  {
+   "id": "3723bd1a-f080-479f-9af4-79effda7860e",
+   "name": "Black Ridge Collision",
+   "category": "auto_body_shop",
+   "address": "1552 S Thoroughbred Rd",
+   "confidence": 0.9574469327926636,
+   "lng": -113.4888763,
+   "lat": 37.1094551
+  },
+  {
+   "id": "14697ae7-1750-4ec2-aac7-d671e530c872",
+   "name": "Blue Wave Pool Supply Store",
+   "category": "pool_cleaning",
+   "address": "1464 S Azure Ridge Cir",
+   "confidence": 0.49196845293045044,
+   "lng": -113.4838257,
+   "lat": 37.1128922
+  },
+  {
+   "id": "dadf24ab-dec7-4424-994d-bfdcdd2f5e20",
+   "name": "Brundage-Bone Concrete Pumping",
+   "category": "masonry_concrete",
+   "address": "1480 S Sandhill Dr Unit A",
+   "confidence": 0.9199122190475464,
+   "lng": -113.480217,
+   "lat": 37.1100388
+  },
+  {
+   "id": "7c4dae65-c776-49d9-8a22-b0f4fa525dff",
+   "name": "Cavedoll",
+   "category": "music_production",
+   "address": null,
+   "confidence": 0.03759163245558739,
+   "lng": -113.4937515,
+   "lat": 37.110817
+  },
+  {
+   "id": "71019704-e7e0-4aab-99a6-b0e7d9249136",
+   "name": "Cloud's Moving & Storage",
+   "category": "self_storage_facility",
+   "address": "1480 S Sandhill Dr Ste B",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4801636,
+   "lat": 37.1102104
+  },
+  {
+   "id": "834513e0-ae9f-45b3-9cf7-0098a899c538",
+   "name": "Colf's Plumbing Inc.",
+   "category": "plumbing",
+   "address": "1468 S Rio Virgin Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.484642,
+   "lat": 37.1102409
+  },
+  {
+   "id": "a2812477-2342-4bb9-9b31-8c8a777c5dcc",
+   "name": "Coral Peak Gymnastics",
+   "category": "gymnastics_center",
+   "address": "1538 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4826813,
+   "lat": 37.1137123
+  },
+  {
+   "id": "bd87d39b-3f7d-45d8-909a-574ae773ef15",
+   "name": "Creative Excavating",
+   "category": "building_supply_store",
+   "address": "976 E Black Brush Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4934158,
+   "lat": 37.1061554
+  },
+  {
+   "id": "c508ac4a-953c-4344-b003-e556a819dab1",
+   "name": "Crorzar LLC",
+   "category": null,
+   "address": "1440 E Ridge St Unit A",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4842758,
+   "lat": 37.1130791
+  },
+  {
+   "id": "11245262-46e2-4ffe-a010-c1862ee20449",
+   "name": "Desert Sun Development",
+   "category": "construction_services",
+   "address": "1288 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.476738,
+   "lat": 37.1128731
+  },
+  {
+   "id": "5d37e7f5-0ef5-46bd-9b89-bb7e1f9bf92d",
+   "name": "Diamond C Asphalt",
+   "category": "paving_contractor",
+   "address": "1575 S 1300 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4863281,
+   "lat": 37.1092529
+  },
+  {
+   "id": "236d98c8-bdd0-4aa4-98c7-c86df46b4600",
+   "name": "Diesel Upgrades",
+   "category": "auto_parts_and_supply_store",
+   "address": "1326 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4769058,
+   "lat": 37.1124687
+  },
+  {
+   "id": "29812094-dded-4623-8d57-7b4bd30d5c11",
+   "name": "DieselPro",
+   "category": "automotive_repair",
+   "address": "1409 S Rio Virgin Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4843826,
+   "lat": 37.1112556
+  },
+  {
+   "id": "a988de49-85b8-47d7-9229-ad34b508fabf",
+   "name": "Dixie Auto Salvage Inc",
+   "category": "junkyard",
+   "address": "1795 E Washington Dam Rd",
+   "confidence": 0.9722161889076233,
+   "lng": -113.4777603,
+   "lat": 37.1146088
+  },
+  {
+   "id": "cad33e5c-f58c-4237-ba94-e37b940d9c60",
+   "name": "Dixie Powersports",
+   "category": "motorcycle_dealer",
+   "address": "1487 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4836044,
+   "lat": 37.1144257
+  },
+  {
+   "id": "2d3f8177-3149-4943-8903-2c945b10c586",
+   "name": "Eaton Sales & Service",
+   "category": "hardware_store",
+   "address": "1880 Washington Dam Rd.",
+   "confidence": 0.77,
+   "lng": -113.4762726,
+   "lat": 37.1143875
+  },
+  {
+   "id": "26ae3129-c67d-436a-aaa3-b501933b0f1a",
+   "name": "Elite Turf Supply",
+   "category": "wholesale_store",
+   "address": "1398 S Sandhill Dr",
+   "confidence": 0.2771803140640259,
+   "lng": -113.4819946,
+   "lat": 37.1112633
+  },
+  {
+   "id": "6c879b1e-22e2-4c57-9101-28d05f56c2f2",
+   "name": "Eminence Off Road",
+   "category": "automotive_parts_and_accessories",
+   "address": "1279S S 1900 E",
+   "confidence": 0.75,
+   "lng": -113.4762421,
+   "lat": 37.1132431
+  },
+  {
+   "id": "7db9c800-b565-438c-a322-2dc72f47ad7c",
+   "name": "Extra Space Storage",
+   "category": "storage_facility",
+   "address": "1281 E Washington Dam Rd",
+   "confidence": 0.9700108003020287,
+   "lng": -113.4889069,
+   "lat": 37.110569
+  },
+  {
+   "id": "deb3e444-dc97-4a8f-a748-aa9aa21ff474",
+   "name": "Factory Off-Road",
+   "category": "motorcycle_repair",
+   "address": "1431 S Rio Virgin Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4840164,
+   "lat": 37.1110191
+  },
+  {
+   "id": "0d8c4f6d-2860-4e0e-8abf-f18a283ffd6f",
+   "name": "Fasst Company Inc",
+   "category": "motorcycle_manufacturer",
+   "address": "1337 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4763641,
+   "lat": 37.1122589
+  },
+  {
+   "id": "ac606cb4-5f68-42f9-807a-56b5e5aea402",
+   "name": "Faus Glass",
+   "category": null,
+   "address": "143 S Mechanical Dr",
+   "confidence": 0.85,
+   "lng": -113.4849167,
+   "lat": 37.1138306
+  },
+  {
+   "id": "22522022-cf6f-4d2e-bef3-c4affbd3cd5b",
+   "name": "Flash Mob Racing",
+   "category": "race_track",
+   "address": "1430 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4842224,
+   "lat": 37.1117897
+  },
+  {
+   "id": "b37d7b5b-2f79-44ec-b028-35cb2f84676b",
+   "name": "Flog Fest",
+   "category": "venue_and_event_space",
+   "address": "1288 S 1900 E",
+   "confidence": 0.8461038500070572,
+   "lng": -113.4769363,
+   "lat": 37.1128235
+  },
+  {
+   "id": "1b1e71a3-78df-4709-959b-f5850bb6d090",
+   "name": "Flood Master",
+   "category": "fire_and_water_damage_restoration",
+   "address": "1392 E Ridge St Unit B",
+   "confidence": 0.9199122190475464,
+   "lng": -113.484581,
+   "lat": 37.1126862
+  },
+  {
+   "id": "1c2dd6ce-e08e-4699-ac04-64ddc522cdb3",
+   "name": "Gate Solutions Inc",
+   "category": "building_supply_store",
+   "address": "1503 Midway St",
+   "confidence": 0.9568805932998657,
+   "lng": -113.4833221,
+   "lat": 37.1109009
+  },
+  {
+   "id": "e5bc5982-c1ac-4d70-8961-728a0420407f",
+   "name": "Germaine Marine St. George",
+   "category": "boat_dealer",
+   "address": "1880 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4763565,
+   "lat": 37.114357
+  },
+  {
+   "id": "7f47f65f-9875-416a-9155-d4b8fe4ebfef",
+   "name": "Gooch Pool Plastering & Repair in Southern Utah",
+   "category": "pool_and_hot_tub_services",
+   "address": "1793 Nuteam Circle",
+   "confidence": 0.85,
+   "lng": -113.4774933,
+   "lat": 37.11306
+  },
+  {
+   "id": "10aa4403-cdd9-408b-9100-e17701ae2ab2",
+   "name": "Grass Creek Construction",
+   "category": null,
+   "address": "1263 HIllcrest Dr Unit A",
+   "confidence": 0.85,
+   "lng": -113.4857407,
+   "lat": 37.1131248
+  },
+  {
+   "id": "c0d30799-8188-42da-9714-2bfaa4a51a8f",
+   "name": "Grooming by Natasha",
+   "category": "pet_groomer",
+   "address": "1589 Centaurus Way",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4817429,
+   "lat": 37.106266
+  },
+  {
+   "id": "042d8f60-bcd4-45cc-9aae-42beab2fdd0c",
+   "name": "Guzman Auto",
+   "category": "automotive_services_and_repair",
+   "address": "1523 Midway St",
+   "confidence": 0.5260137915611267,
+   "lng": -113.4829712,
+   "lat": 37.1110992
+  },
+  {
+   "id": "a3998d54-4fe6-4211-b776-2af077d0ea81",
+   "name": "HS Motorsports",
+   "category": "automotive_parts_and_accessories",
+   "address": "1222 S Hillcrest Dr",
+   "confidence": 0.8828995823860168,
+   "lng": -113.4861374,
+   "lat": 37.1136665
+  },
+  {
+   "id": "ab887bd5-acc0-437b-adbf-da35cff9b2df",
+   "name": "Hepta MFG",
+   "category": "automotive_parts_and_accessories",
+   "address": "1279 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4761124,
+   "lat": 37.113205
+  },
+  {
+   "id": "136eed50-2c7d-49d1-887d-ddfa3f265462",
+   "name": "HiCaliber",
+   "category": "construction_services",
+   "address": "1270 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4767914,
+   "lat": 37.1133499
+  },
+  {
+   "id": "6289bc89-5754-4151-b81c-6ed947664d20",
+   "name": "HingeWorks",
+   "category": "countertop_installation",
+   "address": "960 S 1900 East Building #2",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4770432,
+   "lat": 37.1167374
+  },
+  {
+   "id": "d672cee8-fc46-4143-a72a-dc600c1f5582",
+   "name": "Home Away From Home Childcare",
+   "category": "day_care_preschool",
+   "address": "1266 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4877625,
+   "lat": 37.1103706
+  },
+  {
+   "id": "d560c20f-202e-4a76-b6b7-5d88a16c63d0",
+   "name": "Horizon Elementary School",
+   "category": "elementary_school",
+   "address": "1970 S Arabian Way",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4906387,
+   "lat": 37.1040802
+  },
+  {
+   "id": "7aac06de-a579-4db7-b472-3ebaf2b28457",
+   "name": "Intermountain Pallet Specialties",
+   "category": null,
+   "address": "1285 Morgan Rd",
+   "confidence": 0.85,
+   "lng": -113.4870987,
+   "lat": 37.109108
+  },
+  {
+   "id": "17f33061-905f-4cb1-8357-1489829d47cf",
+   "name": "JLC Construction",
+   "category": null,
+   "address": "1618 Arabian Way E",
+   "confidence": 0.85,
+   "lng": -113.4920044,
+   "lat": 37.1082726
+  },
+  {
+   "id": "69a1ef90-70ef-4b27-8c87-42045013a0ab",
+   "name": "Jessop Motor Co",
+   "category": "automotive_repair",
+   "address": "960 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4761734,
+   "lat": 37.1175652
+  },
+  {
+   "id": "f970dcde-4fb2-4b2b-8f27-080a8b55213b",
+   "name": "K & J Steel Inc.",
+   "category": "commercial_industrial",
+   "address": "1680 E Washington Dam Rd",
+   "confidence": 0.8616874814033508,
+   "lng": -113.4800644,
+   "lat": 37.112854
+  },
+  {
+   "id": "97bc0156-1043-41c7-90ee-aa8c9c4b9bd2",
+   "name": "K&K Repairs LLC.",
+   "category": "automotive_repair",
+   "address": "925 S 1775 E",
+   "confidence": 0.9610901474952698,
+   "lng": -113.4789886,
+   "lat": 37.1171875
+  },
+  {
+   "id": "f67653e3-803d-4574-ba3b-1b178cba6e63",
+   "name": "Knox AutoWurx",
+   "category": "automotive_dealer",
+   "address": "1324 S Sandhill Dr",
+   "confidence": 0.9902192950248718,
+   "lng": -113.4820404,
+   "lat": 37.1119194
+  },
+  {
+   "id": "26c36bb7-9988-4b40-b2b4-75146d52cb7c",
+   "name": "Lone Pine Truss & Building Supply",
+   "category": "construction_services",
+   "address": "1350 E Washington Dam Rd",
+   "confidence": 0.4538004398345947,
+   "lng": -113.4858932,
+   "lat": 37.1112442
+  },
+  {
+   "id": "deadef95-cae6-4446-8b92-8f36ebf99248",
+   "name": "Luxury Group Real Estate",
+   "category": "real_estate",
+   "address": "1503 S Arabian Way",
+   "confidence": 0.3122403621673584,
+   "lng": -113.4912415,
+   "lat": 37.1098251
+  },
+  {
+   "id": "1f597a27-df0a-40d7-bead-f85c54912b65",
+   "name": "M & M Mechanical",
+   "category": "hvac_services",
+   "address": "1430 S Rio Virgin Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.484787,
+   "lat": 37.1108551
+  },
+  {
+   "id": "4fdcfd25-1671-4b38-b9f0-fec8e510875e",
+   "name": "MST Motorsports",
+   "category": "auto_customization",
+   "address": "987 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4758148,
+   "lat": 37.1165428
+  },
+  {
+   "id": "15c93aaf-d2e7-49fd-8bbc-15070049cab8",
+   "name": "Mahoney Performance and Auto Repair",
+   "category": "automotive_repair",
+   "address": "1461 Midway St",
+   "confidence": 0.5818310379981995,
+   "lng": -113.4839859,
+   "lat": 37.1106262
+  },
+  {
+   "id": "fa26115b-5942-47ee-a27b-b8c5af4751a4",
+   "name": "Mens Wedding Bands",
+   "category": "jewelry_store",
+   "address": "1634 E Sandhill Dr",
+   "confidence": 0.9841072779595852,
+   "lng": -113.4810333,
+   "lat": 37.1076431
+  },
+  {
+   "id": "9f50b3ec-fa12-47d7-a44f-a394d599e0db",
+   "name": "Merry Maids of St. George",
+   "category": "home_cleaning",
+   "address": "1430 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4863663,
+   "lat": 37.1135406
+  },
+  {
+   "id": "bb6da99c-d41a-4edf-bae7-32cfe0dc1ab0",
+   "name": "Muddy Water Barbell Club",
+   "category": "gym",
+   "address": "1324 S Sandhill Dr",
+   "confidence": 0.8570160865783691,
+   "lng": -113.4821701,
+   "lat": 37.1119537
+  },
+  {
+   "id": "26b2cd32-b863-4adc-be4e-cbadd507b7c7",
+   "name": "My Absolute Beauty",
+   "category": "cosmetic_and_beauty_supplies",
+   "address": "1459 S Azure Ridge Cir",
+   "confidence": 0.9722161889076233,
+   "lng": -113.4840698,
+   "lat": 37.1134262
+  },
+  {
+   "id": "39e09cb2-b4d4-4965-a5af-d07f8cac7805",
+   "name": "Nature's Loft",
+   "category": "health_food_store",
+   "address": "1231 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4854202,
+   "lat": 37.1135788
+  },
+  {
+   "id": "9dbf921e-046a-4c30-875b-47d0670425b4",
+   "name": "New Horizon Siding & Awnings",
+   "category": "siding",
+   "address": "1416 E Ridge St",
+   "confidence": 0.9171143680810928,
+   "lng": -113.4846725,
+   "lat": 37.1126747
+  },
+  {
+   "id": "cba2320b-9515-417f-88fd-5450aeb3a35e",
+   "name": "New Horizon Siding & Awnings, LLC",
+   "category": "siding",
+   "address": "1416 E Ridge St Ste B",
+   "confidence": 0.85,
+   "lng": -113.4837952,
+   "lat": 37.1088905
+  },
+  {
+   "id": "4ddc27d2-6dc6-455d-ad2e-f052347a7c23",
+   "name": "NuValenz, Inc",
+   "category": "vitamins_and_supplements",
+   "address": "1372 E Ridge St",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4854126,
+   "lat": 37.1124611
+  },
+  {
+   "id": "7d1e2d54-0332-4d67-bb8a-38020b3a4c05",
+   "name": "OSS Containers",
+   "category": "business_to_business",
+   "address": "1432 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4812546,
+   "lat": 37.1108627
+  },
+  {
+   "id": "41c98505-4983-4439-86e9-25041a11bef5",
+   "name": "Offleash K9 Training Southern Utah",
+   "category": "pet_services",
+   "address": "1430 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4842834,
+   "lat": 37.1116066
+  },
+  {
+   "id": "e16eb415-4974-4de7-bc0a-eec6974bd160",
+   "name": "Old Town Dog Spa",
+   "category": "pet_services",
+   "address": "1607 S Scenic Sunrise Dr",
+   "confidence": 0.7469430565834045,
+   "lng": -113.4799423,
+   "lat": 37.1086693
+  },
+  {
+   "id": "873f4558-b43a-42a8-a871-2598c3ecb191",
+   "name": "PDR Dent Shop Co.",
+   "category": "automotive_repair",
+   "address": "1367 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4814911,
+   "lat": 37.1118317
+  },
+  {
+   "id": "b43d2db3-26fd-4614-a7c5-88e3574f2469",
+   "name": "Paradise Pool Oasis ",
+   "category": "health_spa",
+   "address": "1530 E Scenic Sunrise Dr",
+   "confidence": 0.4489717483520508,
+   "lng": -113.4826508,
+   "lat": 37.1092873
+  },
+  {
+   "id": "2cb911d8-e68d-4fd2-95e0-d660dcb5b148",
+   "name": "Paragon Real Estate",
+   "category": "restaurant",
+   "address": "1718 S Camino Real Dr",
+   "confidence": 0.38452064990997314,
+   "lng": -113.4938736,
+   "lat": 37.1066589
+  },
+  {
+   "id": "c0440a2a-f000-40b7-a287-b1cedc5bdbe0",
+   "name": "Paxman Heating & Cooling",
+   "category": "hvac_services",
+   "address": "1140 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4760895,
+   "lat": 37.1166
+  },
+  {
+   "id": "81f5795c-a13f-4dff-9266-142d8161caa9",
+   "name": "PayMore - Buy, Sell & Trade Electronics",
+   "category": "electronics",
+   "address": "1542 E Ridge St Unit 1",
+   "confidence": 0.9902192950248718,
+   "lng": -113.4827423,
+   "lat": 37.1135368
+  },
+  {
+   "id": "8630a971-a1a0-45c0-973e-d13d4e1ab6a0",
+   "name": "Price's Guaranteed Doors Inc",
+   "category": "door_sales_service",
+   "address": "1385 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4853058,
+   "lat": 37.114418
+  },
+  {
+   "id": "cb611674-76e1-4709-894a-005ef63dea04",
+   "name": "Pur Pool Water",
+   "category": "water_treatment_equipment_and_services",
+   "address": "927 E Walkara Cv",
+   "confidence": 0.9199122190475464,
+   "lng": -113.49366,
+   "lat": 37.1183472
+  },
+  {
+   "id": "9faeda56-fa18-4e0e-bf57-1f1a1aae2add",
+   "name": "QuickSand Motorsports",
+   "category": "active_life",
+   "address": "1563 Midway St",
+   "confidence": 0.7771872878074646,
+   "lng": -113.4822006,
+   "lat": 37.1112213
+  },
+  {
+   "id": "fa99d8cb-bfa8-4ea1-846f-68f53c6c1d5d",
+   "name": "RDI Distribution",
+   "category": "building_supply_store",
+   "address": "1200 S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4857483,
+   "lat": 37.1139412
+  },
+  {
+   "id": "a810294f-30c4-4613-852f-4d23ceb80fed",
+   "name": "Rad Rental - Southern Utah UTV Rentals",
+   "category": "rental_services",
+   "address": "1513 E Ridge St Unit B",
+   "confidence": 0.85,
+   "lng": -113.4836884,
+   "lat": 37.1135406
+  },
+  {
+   "id": "6023a7f5-5e72-41cd-9069-67e2d8563ce7",
+   "name": "Ready Services",
+   "category": "home_cleaning",
+   "address": "1432 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4813766,
+   "lat": 37.1108246
+  },
+  {
+   "id": "2af30c2c-326d-4b02-ab31-61032c4146aa",
+   "name": "Red Bed Regeneration",
+   "category": "naturopathic_holistic",
+   "address": "1363 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4857101,
+   "lat": 37.1117783
+  },
+  {
+   "id": "f8af2342-d049-4749-bf7c-e076e57f4183",
+   "name": "Red Sands Industrial Park",
+   "category": "storage_facility",
+   "address": "925 S 1775 E",
+   "confidence": 0.8759124279022217,
+   "lng": -113.4788513,
+   "lat": 37.1175385
+  },
+  {
+   "id": "c2bef799-05a1-4f12-936f-ba25176b418a",
+   "name": "Redman Van & Storage Company",
+   "category": "storage_facility",
+   "address": "1450 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4811478,
+   "lat": 37.1105881
+  },
+  {
+   "id": "247ceab0-c809-4055-9b3b-0cd917fb8a65",
+   "name": "Rees Auto Brokers",
+   "category": "used_car_dealer",
+   "address": "1840 E Washington Dam Rd",
+   "confidence": 0.95,
+   "lng": -113.4768982,
+   "lat": 37.1143494
+  },
+  {
+   "id": "e8372ab6-427b-4838-b76a-5d4d5b91a6c5",
+   "name": "Revival City",
+   "category": "church_cathedral",
+   "address": "960 S 1900 E",
+   "confidence": 0.8506896495819092,
+   "lng": -113.477066,
+   "lat": 37.1174393
+  },
+  {
+   "id": "4b116d1f-7efe-42c8-97fc-552f9ca58751",
+   "name": "Rulon Gardner Gold Medal Gym",
+   "category": "gym",
+   "address": null,
+   "confidence": 0.6595962643623352,
+   "lng": -113.4809723,
+   "lat": 37.1112137
+  },
+  {
+   "id": "42aec119-4b9e-4491-913b-7923e215e41c",
+   "name": "S&S Custom Street Cars",
+   "category": "auto_customization",
+   "address": "1461 Midway St",
+   "confidence": 0.9199122190475464,
+   "lng": -113.481926,
+   "lat": 37.1120224
+  },
+  {
+   "id": "a8c0864a-d5fc-48e6-85e1-a472cdcb6b4d",
+   "name": "SG3 Towing and Recovery",
+   "category": "towing_service",
+   "address": "1365 E S Hillcrest Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4853668,
+   "lat": 37.1146469
+  },
+  {
+   "id": "322085a6-76be-4203-8c6a-c1be0e26f833",
+   "name": "Sam The Concrete Man St. George",
+   "category": null,
+   "address": "1793 Nuteam Circle",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4779434,
+   "lat": 37.1134987
+  },
+  {
+   "id": "50b9d8fe-cffd-4564-a3d4-032ef3cef37e",
+   "name": "Sandstone Landscape and Maintenance",
+   "category": null,
+   "address": "1029 E Red Brome Circle",
+   "confidence": 0.85,
+   "lng": -113.492569,
+   "lat": 37.1082077
+  },
+  {
+   "id": "78e81856-0507-400c-8965-08490067fb03",
+   "name": "Sculpture Concepts",
+   "category": "sculpture_statue",
+   "address": "1532 Midway St",
+   "confidence": 0.95,
+   "lng": -113.4827347,
+   "lat": 37.110508
+  },
+  {
+   "id": "c3ffe441-27d1-4f3b-820d-105d4a490a56",
+   "name": "Shooting Star Park",
+   "category": "park",
+   "address": "1320 E Black Brush Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4866943,
+   "lat": 37.1066055
+  },
+  {
+   "id": "3194132d-882a-4f5f-afc7-dcfcec248b32",
+   "name": "Shooting Star Single Family by Holmes Homes",
+   "category": null,
+   "address": "1568 E Black Brush Dr",
+   "confidence": 0.85,
+   "lng": -113.4820709,
+   "lat": 37.1067696
+  },
+  {
+   "id": "95417567-f41d-4302-a810-378f41384dc8",
+   "name": "Shrammu Pool Services",
+   "category": "pool_cleaning",
+   "address": "1464 S Azure Ridge Cir",
+   "confidence": 0.2034013420343399,
+   "lng": -113.4837341,
+   "lat": 37.1130943
+  },
+  {
+   "id": "78e5f3cf-237a-49b1-93a8-592cdd4fed6a",
+   "name": "Simply Wood Rings",
+   "category": "jewelry_store",
+   "address": "1634 E Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4810257,
+   "lat": 37.1074448
+  },
+  {
+   "id": "71de76f5-7378-4ef2-abae-f70eced896fc",
+   "name": "Southern Utah Vaults",
+   "category": "shopping",
+   "address": "1794 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4780655,
+   "lat": 37.1141243
+  },
+  {
+   "id": "b7e3e0bb-68fe-4b37-aee4-478edcbb37cf",
+   "name": "Southwest Auto Recycling",
+   "category": "junkyard",
+   "address": "1750 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4792557,
+   "lat": 37.1136436
+  },
+  {
+   "id": "071760c2-2555-4e85-9039-02fcda10a9d8",
+   "name": "St Auto Llc",
+   "category": "used_car_dealer",
+   "address": "1513 E Ridge St  # B",
+   "confidence": 0.75,
+   "lng": -113.4832458,
+   "lat": 37.1136131
+  },
+  {
+   "id": "12a7d438-ce1a-40da-879a-81c95bcfc9d5",
+   "name": "St George Awning",
+   "category": "hardware_store",
+   "address": "1398 S Sandhill Dr",
+   "confidence": 0.4695914089679718,
+   "lng": -113.481636,
+   "lat": 37.1113892
+  },
+  {
+   "id": "1010aab5-9b03-477a-80b7-2c94100a2be4",
+   "name": "St. George Auto Glass",
+   "category": "auto_glass_service",
+   "address": "1324 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4822235,
+   "lat": 37.1119423
+  },
+  {
+   "id": "61eb7480-c9ac-4081-b931-82fda73c3d10",
+   "name": "Stark Welding LLC",
+   "category": "metal_fabricator",
+   "address": "1455 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4807129,
+   "lat": 37.1108971
+  },
+  {
+   "id": "878c7344-01e9-4185-8773-504ff71b8505",
+   "name": "StatPacks",
+   "category": "medical_research_and_development",
+   "address": "1509 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.479248,
+   "lat": 37.1098976
+  },
+  {
+   "id": "639456aa-02ec-4ce5-ad16-7a8401e13595",
+   "name": "Steel by the Foot LLC",
+   "category": "iron_and_steel_industry",
+   "address": "1816 E 1300 S",
+   "confidence": 0.21705837547779083,
+   "lng": -113.477356,
+   "lat": 37.1117897
+  },
+  {
+   "id": "afec456f-9306-4124-a068-49f0a781a1ae",
+   "name": "Stilson Outdoor Courts",
+   "category": "masonry_concrete",
+   "address": "1793 E Nuteam Cir",
+   "confidence": 0.30756914615631104,
+   "lng": -113.47789,
+   "lat": 37.1136169
+  },
+  {
+   "id": "45e60dca-1dae-4cc1-b5ef-ab9e07bb487a",
+   "name": "Stream Technologies",
+   "category": "information_technology_company",
+   "address": "1456 S Hillcrest Dr #1",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4840164,
+   "lat": 37.1138535
+  },
+  {
+   "id": "6a9e946f-5c2f-4d3b-b4cb-26e5837e6fc1",
+   "name": "Sun Systems Photovoltaic System Design",
+   "category": "solar_installation",
+   "address": "1010 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4778214,
+   "lat": 37.1162415
+  },
+  {
+   "id": "d8070f57-6fc0-48f0-9573-c4a4a9e64f11",
+   "name": "Sunwood Homes",
+   "category": "builders",
+   "address": "1791 Nuteam Circle",
+   "confidence": 0.85,
+   "lng": -113.4781952,
+   "lat": 37.1131706
+  },
+  {
+   "id": "c94494c1-7f70-41c4-a59b-01c7ee1cb0fb",
+   "name": "Superior Water & Air - STG",
+   "category": "hvac_services",
+   "address": "1794 Nuteam Circle",
+   "confidence": 0.85,
+   "lng": -113.4776917,
+   "lat": 37.1131134
+  },
+  {
+   "id": "05eca901-c5ea-450b-a115-e58aafa32c58",
+   "name": "Tan's Treats",
+   "category": "community_services_non_profits",
+   "address": "1400 S Azure Ridge Cir",
+   "confidence": 0.9224964380264282,
+   "lng": -113.485054,
+   "lat": 37.1127281
+  },
+  {
+   "id": "1a81c117-d2a4-40c3-bd98-f024e810e15d",
+   "name": "Tapetex Drywall LLC.",
+   "category": "drywall_services",
+   "address": "1488 E Ridge St Unit 1",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4837189,
+   "lat": 37.1139107
+  },
+  {
+   "id": "158e6e31-6a4d-4bfd-bbf6-8a78ee4ac5d1",
+   "name": "Taylor Made Fencing",
+   "category": "fence_and_gate_sales_service",
+   "address": "1600 S Quarter Horse Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4906158,
+   "lat": 37.1085587
+  },
+  {
+   "id": "bd42bb7d-cf17-4427-9834-c2d91347e61c",
+   "name": "The Grip Ninja - Ninja Warrior Obstacles",
+   "category": "gym",
+   "address": "1502 E Washington Dam Rd",
+   "confidence": 0.9972474110126496,
+   "lng": -113.4832993,
+   "lat": 37.1117821
+  },
+  {
+   "id": "3434dcda-4365-4176-a5b1-f6f1b7e3c64e",
+   "name": "The Pizza Agency, Llc",
+   "category": "restaurant",
+   "address": "1542 E Ridge St",
+   "confidence": 0.95,
+   "lng": -113.4826508,
+   "lat": 37.1132736
+  },
+  {
+   "id": "91fb392a-ef91-4428-96f3-d0b88787f0e1",
+   "name": "Thompson Bath Remodel",
+   "category": "plumbing",
+   "address": "1186 S Hillcrest Dr Ste 2",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4857254,
+   "lat": 37.1140976
+  },
+  {
+   "id": "54d76ba9-7135-47b7-b00b-1fc26630d9ee",
+   "name": "Thompson Plumbing, Heating & Cooling",
+   "category": "plumbing",
+   "address": "1186 S Hillcrest Dr Unit 1",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4857254,
+   "lat": 37.1140976
+  },
+  {
+   "id": "672471f7-62dd-44b7-a6a6-ce95b5ef4da7",
+   "name": "Tonks Insulation",
+   "category": "insulation_installation",
+   "address": "1410 Rio Virgin Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4845886,
+   "lat": 37.1112404
+  },
+  {
+   "id": "b16b8d1b-c796-4eff-98df-1004cd225a22",
+   "name": "Towne Storage",
+   "category": "self_storage_facility",
+   "address": "1281 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4888535,
+   "lat": 37.1105881
+  },
+  {
+   "id": "19e9fcee-b0ff-43cd-8dc4-019cb9c5f837",
+   "name": "Traffic Jams",
+   "category": null,
+   "address": "1460 E Washington Dam Rd Ste 6",
+   "confidence": 0.85,
+   "lng": -113.4877625,
+   "lat": 37.1092567
+  },
+  {
+   "id": "8ab874f5-13ed-4ccf-a268-d115bca21317",
+   "name": "Trakk Designs",
+   "category": "business_manufacturing_and_supply",
+   "address": "1326 S 1900 E",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4767303,
+   "lat": 37.1124878
+  },
+  {
+   "id": "8f8a4b72-8633-4273-8087-246ca9dfdc2e",
+   "name": "TungstenRings.com",
+   "category": "jewelry_store",
+   "address": "1634 E Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.48069,
+   "lat": 37.1092224
+  },
+  {
+   "id": "99218ad6-fa1c-4fcb-89dd-591580707cd0",
+   "name": "U-Haul Neighborhood Dealer",
+   "category": "truck_rentals",
+   "address": "1205 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4818344,
+   "lat": 37.1134834
+  },
+  {
+   "id": "926913fc-7379-48e7-8c47-0e0473cfbe9e",
+   "name": "U-Haul Neighborhood Dealer",
+   "category": "truck_rentals",
+   "address": "1281 E Washington Dam Rd",
+   "confidence": 0.85,
+   "lng": -113.4886017,
+   "lat": 37.1104622
+  },
+  {
+   "id": "0bf36402-d10e-4b99-b3c4-e9a312ae15b3",
+   "name": "USI Cardalls",
+   "category": "contractor",
+   "address": "1410 S Rio Virgin Dr",
+   "confidence": 0.36415526270866394,
+   "lng": -113.4847641,
+   "lat": 37.1111794
+  },
+  {
+   "id": "8b315cf9-cf7e-4334-956c-5ec9aa198c49",
+   "name": "UTV Adventure Tours",
+   "category": "tours",
+   "address": "1324 S Sandhill Dr",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4822159,
+   "lat": 37.1119499
+  },
+  {
+   "id": "38c10e5d-36e7-48c7-8514-8bfcb70570a8",
+   "name": "Underwraps Nation",
+   "category": "auto_customization",
+   "address": "1467 S Hillcrest Dr Ste 1",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4857483,
+   "lat": 37.1133957
+  },
+  {
+   "id": "d584dc4d-18e9-410f-91ca-5bd064b5394f",
+   "name": "Walker Plumbing, Heating & Air",
+   "category": "hvac_services",
+   "address": "1794 E Nuteam Circle",
+   "confidence": 0.9734238392487168,
+   "lng": -113.4775543,
+   "lat": 37.1130905
+  },
+  {
+   "id": "5583183b-5c5f-485f-899b-d60f4a50ee7e",
+   "name": "Wall 2 Wall Construction",
+   "category": null,
+   "address": "987 S 1900 East, B",
+   "confidence": 0.85,
+   "lng": -113.4759293,
+   "lat": 37.116642
+  },
+  {
+   "id": "c31ebc12-17b7-4f6d-88f6-2b544560b2ae",
+   "name": "Washington Dome",
+   "category": "structure_and_geography",
+   "address": "",
+   "confidence": 0.4457516670227051,
+   "lng": -113.4721832,
+   "lat": 37.1058083
+  },
+  {
+   "id": "10a5bb5a-e1db-47ec-88b0-f74ff1d94b73",
+   "name": "Washington Fire Department Station 62",
+   "category": "fire_department",
+   "address": "911 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4947281,
+   "lat": 37.1085968
+  },
+  {
+   "id": "08b30322-0c42-4918-b6eb-bc121608b1c7",
+   "name": "Washington Public Works Department",
+   "category": "public_service_and_government",
+   "address": "1305 E Washington Dam Rd",
+   "confidence": 0.9199122190475464,
+   "lng": -113.486702,
+   "lat": 37.111454
+  },
+  {
+   "id": "ddd9e670-3fdd-4a8a-9438-d137badb1db2",
+   "name": "Wastlund Custom Cabinetry",
+   "category": "carpenter",
+   "address": "1794 Nuteam Cir",
+   "confidence": 0.9199122190475464,
+   "lng": -113.4771423,
+   "lat": 37.1132088
+  },
+  {
+   "id": "eaa12f7e-ef81-4474-ba7b-a41999b212c3",
+   "name": "smiley automotive",
+   "category": "auto_customization",
+   "address": "1430 E Washington Dam Rd",
+   "confidence": 0.9583256840705872,
+   "lng": -113.4842606,
+   "lat": 37.1115723
+  }
+ ]
+}

@@ -6,6 +6,8 @@ import {
   PARCEL_USES,
   STATUS_LABELS,
   USE_LABELS,
+  categoryLabel,
+  type Business,
   type Household,
   type HouseholdStatus,
   type ParcelDetail,
@@ -161,6 +163,68 @@ export default function ParcelPanel({
     })
   }, [])
 
+  /**
+   * Business tenants. Same shape as households — many rows per parcel, because a
+   * single industrial unit here holds up to six of them — but a much smaller
+   * record, so they render as an inline list rather than tabbed forms.
+   *
+   * Every write re-loads the panel and tells the map: the first tenant is the
+   * label the parcel is drawn with.
+   */
+  const addBusiness = useCallback(async () => {
+    if (target.kind !== 'parcel') return
+    setSave({ status: 'saving' })
+    const res = await fetch('/api/businesses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel_id: target.parcelId, name: 'New business' }),
+    })
+    if (!res.ok) {
+      setSave({ status: 'error', message: 'Could not add business.' })
+      return
+    }
+    setSave({ status: 'saved', at: Date.now() })
+    await load()
+    onChanged()
+  }, [target, load, onChanged])
+
+  const patchBusiness = useCallback(
+    async (id: string, body: Record<string, unknown>) => {
+      setSave({ status: 'saving' })
+      try {
+        const res = await fetch(`/api/businesses/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+        if (!res.ok) {
+          setSave({ status: 'error', message: 'Not saved — check your connection.' })
+          return
+        }
+        setSave({ status: 'saved', at: Date.now() })
+        await load()
+        onChanged()
+      } catch {
+        setSave({ status: 'error', message: 'Not saved — check your connection.' })
+      }
+    },
+    [load, onChanged],
+  )
+
+  const deleteBusiness = useCallback(
+    async (id: string, name: string) => {
+      if (!confirm(`Remove "${name}" from this property?`)) return
+      const res = await fetch(`/api/businesses/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        setSave({ status: 'error', message: 'Could not remove business.' })
+        return
+      }
+      await load()
+      onChanged()
+    },
+    [load, onChanged],
+  )
+
   async function addHousehold() {
     if (target.kind !== 'parcel') return
     const res = await fetch('/api/households', {
@@ -301,21 +365,12 @@ export default function ParcelPanel({
             )}
 
             {isBusiness && (
-              <div className="mt-3">
-                <label className={labelCls} htmlFor="business_name">
-                  Business name
-                </label>
-                <input
-                  id="business_name"
-                  className={field}
-                  placeholder="e.g. Cloud's Moving & Storage"
-                  defaultValue={parcel.business_name ?? ''}
-                  onBlur={(e) => patchParcel({ business_name: e.target.value.trim() || null })}
-                />
-                <p className="mt-1 text-[11px] text-neutral-500">
-                  Shown on the map instead of a family name. Businesses are not counted as homes.
-                </p>
-              </div>
+              <BusinessList
+                businesses={detail?.businesses ?? []}
+                onAdd={addBusiness}
+                onPatch={patchBusiness}
+                onDelete={deleteBusiness}
+              />
             )}
           </section>
         )}
@@ -394,6 +449,87 @@ export default function ParcelPanel({
         ) : null}
       </footer>
     </aside>
+  )
+}
+
+/**
+ * The tenants of a business parcel.
+ *
+ * Names are uncontrolled with a blur-to-save, matching the rest of the panel:
+ * on a phone in a parking lot, an autosave per keystroke is a dropped request
+ * per keystroke.
+ */
+function BusinessList({
+  businesses,
+  onAdd,
+  onPatch,
+  onDelete,
+}: {
+  businesses: Business[]
+  onAdd: () => void
+  onPatch: (id: string, body: Record<string, unknown>) => void
+  onDelete: (id: string, name: string) => void
+}) {
+  return (
+    <div className="mt-3">
+      <h3 className={labelCls}>
+        {businesses.length > 1 ? `Businesses (${businesses.length})` : 'Business'}
+      </h3>
+
+      <ul className="mt-1 space-y-2">
+        {businesses.map((b, i) => (
+          <li key={b.id} className="rounded-md border border-neutral-200 p-2.5">
+            <input
+              className="w-full rounded border border-neutral-300 px-2 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-900 sm:py-1.5 sm:text-sm"
+              placeholder="e.g. Cloud's Moving & Storage"
+              defaultValue={b.name}
+              onBlur={(e) => {
+                const name = e.target.value.trim()
+                if (name && name !== b.name) onPatch(b.id, { name })
+                // A blanked-out name is a removal typed the long way round, but
+                // deleting on blur would be a trap. Put the old one back.
+                else if (!name) e.target.value = b.name
+              }}
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2 text-base text-neutral-700 outline-none focus:border-neutral-900 sm:py-1.5 sm:text-xs"
+                placeholder="Type (optional)"
+                defaultValue={categoryLabel(b.category) ?? ''}
+                onBlur={(e) => {
+                  const category = e.target.value.trim() || null
+                  if (category !== (categoryLabel(b.category) ?? null)) onPatch(b.id, { category })
+                }}
+              />
+              <button
+                onClick={() => onDelete(b.id, b.name)}
+                className={`shrink-0 px-1 text-xs text-neutral-500 underline underline-offset-2 ${TAP}`}
+              >
+                Remove
+              </button>
+            </div>
+            {/* Which name the map prints, and where an unfamiliar one came from. */}
+            <p className="mt-1.5 text-[11px] text-neutral-500">
+              {i === 0 ? 'Shown on the map · ' : ''}
+              {b.source === 'overture' ? 'From Overture Maps — check it' : 'Entered by hand'}
+            </p>
+          </li>
+        ))}
+      </ul>
+
+      {businesses.length === 0 && (
+        <p className="mt-1 text-[11px] text-neutral-500">
+          No business recorded here yet. Businesses are not counted as homes.
+        </p>
+      )}
+
+      <button
+        onClick={onAdd}
+        className={`mt-2 rounded-md border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 ${TAP}`}
+      >
+        Add business
+      </button>
+    </div>
   )
 }
 

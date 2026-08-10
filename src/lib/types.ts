@@ -43,7 +43,10 @@ export type ParcelProperties = {
   pid: string
   address: string | null
   use: ParcelUse
+  /** First tenant on a business parcel — what the map labels it with. */
   businessName: string | null
+  /** Tenants on this parcel, so the label can show "+2" for a shared unit. */
+  businessCount: number
   familyName: string | null
   status: HouseholdStatus | null
   householdCount: number
@@ -99,6 +102,22 @@ export type Household = {
   people: Person[]
 }
 
+/**
+ * One tenant of a business parcel. Multi-tenant units are the normal case here,
+ * so these are rows against parcel_id exactly like households are.
+ */
+export type Business = {
+  id: string
+  parcel_id: string
+  name: string
+  category: string | null
+  notes: string | null
+  /** 'overture' rows were matched from the public POI dataset, not typed by hand. */
+  source: string
+  updated_at: string
+  updated_by: string | null
+}
+
 export type ParcelSummary = {
   parcel_id: string
   address: string | null
@@ -108,7 +127,6 @@ export type ParcelSummary = {
   coparcel_url: string | null
   in_ward: boolean
   use_type: ParcelUse
-  business_name: string | null
   source: 'county' | 'manual'
 }
 
@@ -116,4 +134,12 @@ export type ParcelDetail = {
   /** null when the panel is showing a pinned household with no parcel behind it. */
   parcel: ParcelSummary | null
   households: Household[]
+  businesses: Business[]
+}
+
+/** Turns a raw category slug from the POI import into something readable. */
+export function categoryLabel(category: string | null): string | null {
+  if (!category) return null
+  const words = category.replace(/_/g, ' ').trim()
+  return words ? words[0].toUpperCase() + words.slice(1) : null
 }

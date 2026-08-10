@@ -1,9 +1,9 @@
 /**
  * The re-import must never destroy ward data.
  *
- * Seeds a household + person + manual overrides on a real parcel, re-runs the
- * import, then asserts everything survived. Run this before every monthly
- * refresh:  npm run test:clobber
+ * Seeds a household + person + business + manual overrides on a real parcel,
+ * re-runs the import, then asserts everything survived. Run this before every
+ * monthly refresh:  npm run test:clobber
  *
  * Safe to run against the live database: it cleans up the rows it created.
  */
@@ -54,13 +54,19 @@ run(async () => {
 
     // Flip every manual override away from its default so a clobber is visible.
     await client.query(
-      `UPDATE parcels SET in_ward = false, use_type = 'business', business_name = $2,
-                          ward_edited_at = now()
+      `UPDATE parcels SET in_ward = false, use_type = 'business', ward_edited_at = now()
        WHERE parcel_id = $1`,
+      [parcelId],
+    )
+
+    const b = await client.query<{ id: string }>(
+      `INSERT INTO businesses (parcel_id, name, updated_by)
+       VALUES ($1, $2, 'clobber-test')
+       RETURNING id`,
       [parcelId, MARKER],
     )
 
-    return { householdId, parcelId }
+    return { householdId, parcelId, businessId: b.rows[0].id }
   })
 
   /**
@@ -102,14 +108,21 @@ run(async () => {
       check('person still exists', p.rowCount, 1)
       if (p.rowCount === 1) check('person phone intact', p.rows[0].phone, '555-0100')
 
+      // A business row is ward work too: the import must not cascade it away.
+      const b = await client.query<{ name: string }>(
+        `SELECT name FROM businesses WHERE id = $1`,
+        [seeded.businessId],
+      )
+      check('business still exists', b.rowCount, 1)
+      if (b.rowCount === 1) check('business name intact', b.rows[0].name, MARKER)
+
       const o = await client.query<{
         in_ward: boolean
         use_type: string
-        business_name: string | null
         edited: boolean
         recent: boolean
       }>(
-        `SELECT in_ward, use_type, business_name,
+        `SELECT in_ward, use_type,
                 ward_edited_at IS NOT NULL AS edited,
                 imported_at > now() - interval '10 minutes' AS recent
          FROM parcels WHERE parcel_id = $1`,
@@ -119,7 +132,6 @@ run(async () => {
       if (o.rowCount === 1) {
         check('in_ward override preserved', o.rows[0].in_ward, false)
         check('use_type override preserved', o.rows[0].use_type, 'business')
-        check('business_name override preserved', o.rows[0].business_name, MARKER)
         // Without this the parcel loses its protection and the next boundary
         // change is free to delete it along with everything typed into it.
         check('ward_edited_at preserved', o.rows[0].edited, true)
@@ -131,9 +143,10 @@ run(async () => {
   } finally {
     await withClient(async (client) => {
       await client.query(`DELETE FROM households WHERE id = $1`, [seeded.householdId]) // people cascade
+      await client.query(`DELETE FROM businesses WHERE id = $1`, [seeded.businessId])
       await client.query(
         `UPDATE parcels
-         SET in_ward = true, business_name = NULL, ward_edited_at = NULL,
+         SET in_ward = true, ward_edited_at = NULL,
              use_type = CASE WHEN address IS NOT NULL AND btrim(address) <> ''
                              THEN 'residence'::parcel_use ELSE 'common_area'::parcel_use END
          WHERE parcel_id = $1`,

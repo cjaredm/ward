@@ -88,7 +88,7 @@ where the outline actually moved.
 
 **Nothing that holds ward data is ever deleted.** A county parcel that falls outside the new
 boundary is kept — not removed — if it has households on it or if anyone has hand-set its
-property type, business name or `in_ward` (tracked in `parcels.ward_edited_at`, stamped by the
+property type or `in_ward` (tracked in `parcels.ward_edited_at`, stamped by the
 app on every parcel edit). Those parcels are listed at the end of the run for review. Shrinking
 the ward hides nothing you typed in; hand-drawn parcels (`source = 'manual'`) are never touched
 at all.
@@ -147,6 +147,76 @@ made in the app always win.
 Pins parked at the ward centre are meant to be dragged onto their houses: press and drag a pin
 on the map, on desktop or on a phone.
 
+## Naming the businesses
+
+A parcel marked **Business** holds a list of tenants — many per parcel, the same shape
+households already have, because one unit on Sandhill Dr holds six of them. The first tenant is
+the name the map prints; a shared unit prints `Knox AutoWurx  +5`. Edit them in the parcel panel.
+
+[scripts/import-businesses.ts](scripts/import-businesses.ts) fills them in from
+[Overture Maps](https://overturemaps.org) rather than by hand:
+
+```sh
+npm run import:businesses                      # dry run — prints the plan, writes nothing
+npm run import:businesses -- --apply
+npm run import:businesses -- --min-confidence 0.6
+```
+
+Input is `data/overture-places.json`, committed because it is public business names with no
+member data in it. Regenerate it when the ward looks stale:
+
+```sh
+pip install duckdb && npm run fetch:places
+```
+
+Overture rather than OpenStreetMap because of coverage: OSM knows six businesses inside this
+boundary and Utah's statewide address points know two. Overture carries the Meta and Microsoft
+POI sets and knows about 140, which names roughly two thirds of the industrial park. The data is
+CC BY 4.0; imported rows are labelled *From Overture Maps* in the panel until somebody edits
+them, at which point they become hand-entered and no re-import will touch them.
+
+Each POI matches a parcel by coordinate first, and by county address second — one POI in six is
+geocoded to the street or the wrong end of a building. An address-only match is only ever
+allowed onto a parcel **already marked as a business**: it is not strong enough to put a shop
+name on somebody's house. Parcels that already have a tenant are skipped entirely, which covers
+both hand-typed names and a tenant somebody deliberately deleted.
+
+## Satellite
+
+The Map / Satellite toggle in the legend switches the basemap to Esri World Imagery — no API key,
+attribution shown on the map — with OpenFreeMap's roads, street names and place labels still
+drawn on top, so it is a hybrid rather than bare photos. The choice is remembered per device.
+
+[`applySatellite`](src/lib/map-style.ts) edits the live style in place instead of swapping
+styles: `setStyle` would tear down the parcel source and rebuild it, flashing the whole ward and
+dropping the selection. It hides everything that paints ground, slots the imagery under the
+first road line, flips labels to white-on-dark, and hands back a function that puts all of it
+back.
+
+Imagery stops at z19 here, which is why the source is capped there — uncapped, MapLibre asks for
+z20 and gets blank tiles instead of overzooming the z19 ones.
+
+Esri's capture does not sit exactly on the county's survey — over this ward it is about **four
+metres north**, enough that every lot reads as sitting south of its house. That correction is
+applied by default (`DEFAULT_IMAGERY_NUDGE` in [src/lib/map-style.ts](src/lib/map-style.ts)); nobody
+has to know it exists.
+
+The control that changes it is folded behind **Imagery alignment** at the bottom of the tools
+card, visible only in satellite. It is a one-time calibration, not a field control — the reason to
+open it is Esri reflying the area. Arrows move the photo in one-metre steps, the reading resets to
+the built-in default, and an adjustment is remembered per device.
+
+MapLibre has no `raster-translate`, so the correction moves the ward layers the other way with
+`fill-translate` / `line-translate` / `circle-translate` / `text-translate` — the same picture, and a
+paint property, so nothing in the database moves. `*-translate` is in screen pixels, which would
+be the wrong ground distance at every zoom but one; a metre is worth twice as many pixels per
+zoom level, so an `["exponential", 2]` zoom interpolation between two stops holds the offset at a
+constant distance on the ground (verified exact from z12 to z22).
+
+Anything written from a map click — a dropped pin, a traced outline, a dragged pin — has the
+offset subtracted back off first, so what you point at is what gets stored. `queryRenderedFeatures`
+already accounts for translate, so taps still select the parcel you can see.
+
 ## Monthly refresh
 
 UGRC republishes the county layer monthly. Before each refresh:
@@ -156,7 +226,7 @@ npm run test:clobber     # proves the import does not destroy household data
 npm run import:parcels
 ```
 
-`test:clobber` seeds a household plus the manual `in_ward` / `use_type` / `business_name` /
+`test:clobber` seeds a household plus a business plus the manual `in_ward` / `use_type` /
 `ward_edited_at` overrides on a **county** parcel, re-runs the import, and asserts everything
 survived. If it fails, **do not run the refresh** — the import is eating months of hand-entered
 work.

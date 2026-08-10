@@ -78,7 +78,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   return NextResponse.json(
-    { parcel: null, households: [rows[0].household] },
+    // A pinned household has no parcel, so it can carry no business tenants.
+    { parcel: null, households: [rows[0].household], businesses: [] },
     { headers: { 'Cache-Control': 'private, no-store' } },
   )
 }

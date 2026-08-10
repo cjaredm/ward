@@ -43,7 +43,8 @@ export async function GET() {
           'pid', p.parcel_id,
           'address', p.address,
           'use', p.use_type,
-          'businessName', p.business_name,
+          'businessName', b.name,
+          'businessCount', coalesce(b.n, 0),
           'familyName', h.family_name,
           'status', h.status,
           'householdCount', coalesce(h.n, 0)
@@ -57,6 +58,16 @@ export async function GET() {
         ORDER BY created_at
         LIMIT 1
       ) h ON true
+      -- Only business parcels get a business label. Retyping a parcel to a home
+      -- therefore hides its tenants rather than deleting them, and retyping it
+      -- back brings the list straight back.
+      LEFT JOIN LATERAL (
+        SELECT name, count(*) OVER () AS n
+        FROM businesses
+        WHERE parcel_id = p.parcel_id AND p.use_type = 'business'
+        ORDER BY sort_order, created_at
+        LIMIT 1
+      ) b ON true
       WHERE p.in_ward
     ),
     pin_features AS (

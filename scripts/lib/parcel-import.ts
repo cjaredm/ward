@@ -3,8 +3,8 @@
  * Idempotent — safe to re-run monthly when UGRC refreshes the county layer, and
  * safe to re-run automatically whenever the boundary is redrawn.
  *
- * The one invariant that matters: this must never touch `households`, `people`
- * or the manual `in_ward` / `use_type` / `business_name` overrides on `parcels`.
+ * The one invariant that matters: this must never touch `households`, `people`,
+ * `businesses` or the manual `in_ward` / `use_type` overrides on `parcels`.
  * See scripts/test-import-clobber.ts.
  *
  * Lives in lib/ because two callers need it: the monthly `npm run import:parcels`
@@ -244,8 +244,9 @@ export async function importParcels(client: Client): Promise<ImportSummary> {
         area_sqm          = EXCLUDED.area_sqm,
         county_current_at = EXCLUDED.county_current_at,
         imported_at       = EXCLUDED.imported_at
-        -- in_ward, use_type, business_name and ward_edited_at are deliberately
-        -- absent: they are manual overrides and must survive every re-import.
+        -- in_ward, use_type and ward_edited_at are deliberately absent: they are
+        -- manual overrides and must survive every re-import. Business tenants
+        -- live in their own table and are never touched here at all.
       RETURNING (xmax = 0) AS inserted
     `)
     const inserted = upsert.rows.filter((r) => r.inserted).length

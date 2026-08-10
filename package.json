@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/copy-maplibre-worker.mjs && next dev",
+    "dev": "node scripts/copy-maplibre-worker.mjs && next dev -p 3001",
     "build": "node scripts/copy-maplibre-worker.mjs && tsx scripts/sync-boundary.ts && next build",
     "copy:worker": "node scripts/copy-maplibre-worker.mjs",
     "start": "next start",
@@ -13,6 +13,8 @@
     "seed:boundary": "tsx scripts/seed-boundary.ts",
     "import:parcels": "tsx scripts/import-parcels.ts",
     "import:directory": "tsx scripts/import-directory.ts",
+    "import:businesses": "tsx scripts/import-businesses.ts",
+    "fetch:places": "python3 scripts/fetch-places.py",
     "hash-password": "tsx scripts/hash-password.ts",
     "test:clobber": "tsx scripts/test-import-clobber.ts"
   },

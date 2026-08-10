@@ -24,12 +24,19 @@ import {
   MAP_STYLE_URL,
   MIN_ZOOM,
   NO_HOUSEHOLD_COLOR,
+  OUTLINE_COLOR,
   STATUS_COLORS,
+  DEFAULT_IMAGERY_NUDGE,
+  applySatellite,
   fillColorByStatus,
+  metresToLatitude,
+  nudgeTranslate,
   padBounds,
+  parcelCategory,
   pinColorByStatus,
 } from '@/lib/map-style'
 import {
+  HOUSEHOLD_STATUSES,
   PARCEL_USES,
   STATUS_LABELS,
   USE_LABELS,
@@ -52,6 +59,22 @@ setWorkerUrl('/maplibre-gl-worker.mjs')
 const EMPTY: ParcelCollection = { type: 'FeatureCollection', features: [] }
 
 /**
+ * The legend, top to bottom. Every key is a filter: clicking one shows or hides
+ * everything drawn in that colour.
+ *
+ * Business and common area start hidden. Between them they are half the parcels
+ * in the ward and none of them is a home, so leaving them on means hunting for
+ * houses through an industrial park and a hundred retention basins.
+ */
+const LEGEND = [
+  ...HOUSEHOLD_STATUSES.map((s) => ({ key: s as string, label: STATUS_LABELS[s], color: STATUS_COLORS[s] })),
+  { key: 'no_household', label: 'No household', color: NO_HOUSEHOLD_COLOR },
+  { key: 'business', label: 'Business', color: BUSINESS_COLOR },
+  { key: 'common_area', label: 'Common area', color: COMMON_AREA_COLOR },
+]
+const HIDDEN_BY_DEFAULT = ['business', 'common_area']
+
+/**
  * 44px minimum hit area on a phone, back to the compact desktop size at `sm`.
  * These controls are pressed one-handed while walking, so the original
  * 28px-tall buttons were a miss more often than not.
@@ -68,7 +91,8 @@ export default function WardMap({ actorName }: { actorName: string }) {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<PanelTarget | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
-  const [showCommonAreas, setShowCommonAreas] = useState(false)
+  /** Legend keys currently switched off. */
+  const [hiddenKeys, setHiddenKeys] = useState<string[]>(HIDDEN_BY_DEFAULT)
   const [placingPin, setPlacingPin] = useState(false)
   /** Vertices of the outline being traced, or null when not drawing. */
   const [draft, setDraft] = useState<[number, number][] | null>(null)
@@ -97,12 +121,54 @@ export default function WardMap({ actorName }: { actorName: string }) {
    */
   const [controlsOpen, setControlsOpen] = useState(true)
   const [coarse, setCoarse] = useState(false)
+  /**
+   * Basemap: the drawn map, or aerial imagery with the map's roads and labels
+   * still on top. Which one you want depends on the job — imagery to tell which
+   * building is which and where the driveways are, the drawn map to read street
+   * names at a glance — so the choice is remembered between visits.
+   */
+  const [satellite, setSatellite] = useState(false)
+  /**
+   * How far the imagery sits too far north, in metres. Esri's capture here is
+   * off by about four, which at a house's scale reads as every lot being drawn
+   * south of its roof — so the correction ships on by default and the control
+   * for it stays folded away.
+   */
+  const [nudge, setNudge] = useState(DEFAULT_IMAGERY_NUDGE)
+  const [showNudge, setShowNudge] = useState(false)
 
   useEffect(() => {
     const isCoarse = window.matchMedia('(pointer: coarse)').matches
     setCoarse(isCoarse)
     if (window.matchMedia('(max-width: 639px)').matches) setControlsOpen(false)
+    setSatellite(localStorage.getItem('ward:basemap') === 'satellite')
+    // Only a value somebody set by hand overrides the measured default.
+    const saved = localStorage.getItem('ward:imagery-nudge')
+    if (saved !== null && Number.isFinite(Number(saved))) setNudge(Number(saved))
   }, [])
+
+  // Only meaningful over imagery: the drawn basemap is built from the same
+  // survey data as the parcels and already lines up.
+  const translate = useMemo(
+    () => nudgeTranslate(satellite ? nudge : 0) as never,
+    [satellite, nudge],
+  )
+
+  /**
+   * Undoes the nudge on a coordinate the user clicked.
+   *
+   * The ward layers are drawn `nudge` metres up the screen, so a point stored at
+   * the raw click would render that far above the spot aimed at. Everything
+   * written from a map click — a dropped pin, a traced outline, a dragged pin —
+   * goes through here so that what you point at is what gets saved.
+   */
+  const unnudge = useCallback(
+    (lngLat: { lng: number; lat: number }) =>
+      satellite && nudge
+        ? { lng: lngLat.lng, lat: lngLat.lat - metresToLatitude(nudge) }
+        : { lng: lngLat.lng, lat: lngLat.lat },
+    [satellite, nudge],
+  )
 
   // Arming a tool from the collapsed bar has to reveal that tool's own controls.
   // Keyed on "is a tool armed", not on `draft` itself, so collapsing the card
@@ -178,6 +244,18 @@ export default function WardMap({ actorName }: { actorName: string }) {
     [boundary],
   )
 
+  /**
+   * Satellite is applied to the live style rather than by swapping styles:
+   * setStyle would tear the parcel source down and rebuild it, which flashes the
+   * whole ward and drops the selection. The cleanup puts the basemap back.
+   */
+  const [mapLoaded, setMapLoaded] = useState(false)
+  useEffect(() => {
+    const map = mapRef.current?.getMap()
+    if (!map || !mapLoaded || !satellite) return
+    return applySatellite(map)
+  }, [satellite, mapLoaded])
+
   // Escape backs out of whatever mode is armed, innermost first, and only closes
   // the panel once nothing else is pending. Without this, arming a tool and
   // changing your mind means clicking the map and creating something unwanted.
@@ -201,20 +279,28 @@ export default function WardMap({ actorName }: { actorName: string }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [placingPin, draft, selectMode, picked.length])
 
-  // Common areas are hidden by default: roads and retention basins are noise
-  // when you are looking for houses.
+  const visibleKeys = useMemo(
+    () => LEGEND.map((l) => l.key).filter((k) => !hiddenKeys.includes(k)),
+    [hiddenKeys],
+  )
+
   const parcelFilter = useMemo(
     () =>
-      (showCommonAreas
-        ? ['==', ['get', 'kind'], 'parcel']
-        : [
-            'all',
-            ['==', ['get', 'kind'], 'parcel'],
-            ['!=', ['get', 'use'], 'common_area'],
-          ]) as never,
-    [showCommonAreas],
+      ['all', ['==', ['get', 'kind'], 'parcel'], ['in', parcelCategory, ['literal', visibleKeys]]] as never,
+    [visibleKeys],
   )
-  const pinFilter = useMemo(() => ['==', ['get', 'kind'], 'pin'] as never, [])
+
+  // A pin is a household with no parcel, so it answers to its status key and to
+  // nothing else — hiding "Business" must not take pinned homes with it.
+  const pinFilter = useMemo(
+    () =>
+      [
+        'all',
+        ['==', ['get', 'kind'], 'pin'],
+        ['in', ['coalesce', ['get', 'status'], 'unknown'], ['literal', visibleKeys]],
+      ] as never,
+    [visibleKeys],
+  )
 
   const fillLayer: FillLayerSpecification = {
     id: 'parcel-fill',
@@ -224,6 +310,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
     paint: {
       'fill-color': fillColorByStatus as never,
       'fill-opacity': ['case', ['==', ['get', 'pid'], hovered ?? ''], 0.8, 0.55],
+      'fill-translate': translate,
     },
   }
 
@@ -238,8 +325,8 @@ export default function WardMap({ actorName }: { actorName: string }) {
         ['in', ['get', 'pid'], ['literal', picked]],
         '#2563eb',
         ['==', ['get', 'pid'], selectedId(selected)],
-        '#111827',
-        '#475569',
+        satellite ? '#ffffff' : '#111827',
+        satellite ? OUTLINE_COLOR.satellite : OUTLINE_COLOR.map,
       ],
       'line-width': [
         'case',
@@ -256,6 +343,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         ['literal', [2, 1.5]],
         ['literal', [1, 0]],
       ],
+      'line-translate': translate,
     },
   }
 
@@ -266,8 +354,20 @@ export default function WardMap({ actorName }: { actorName: string }) {
     minzoom: 16,
     filter: parcelFilter,
     layout: {
-      // Business name where there is one, otherwise the family name.
-      'text-field': ['coalesce', ['get', 'businessName'], ['get', 'familyName'], ''],
+      // Business name where there is one, otherwise the family name. A unit with
+      // several tenants prints the first and a count — six names would cover the
+      // block, and the panel lists them all anyway.
+      'text-field': [
+        'case',
+        ['>', ['coalesce', ['get', 'businessCount'], 0], 1],
+        [
+          'concat',
+          ['get', 'businessName'],
+          '  +',
+          ['to-string', ['-', ['get', 'businessCount'], 1]],
+        ],
+        ['coalesce', ['get', 'businessName'], ['get', 'familyName'], ''],
+      ],
       'text-size': 11,
       'text-anchor': 'center',
       'text-allow-overlap': false,
@@ -276,6 +376,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
       'text-color': ['case', ['==', ['get', 'use'], 'business'], '#713f12', '#0f172a'],
       'text-halo-color': '#ffffff',
       'text-halo-width': 1.4,
+      'text-translate': translate,
     },
   }
 
@@ -290,6 +391,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
       'circle-color': pinColorByStatus as never,
       'circle-stroke-width': ['case', ['==', ['get', 'hid'], selectedId(selected)], 3, 2],
       'circle-stroke-color': '#111827',
+      'circle-translate': translate,
     },
   }
 
@@ -306,14 +408,24 @@ export default function WardMap({ actorName }: { actorName: string }) {
       'text-anchor': 'top',
       'text-allow-overlap': false,
     },
-    paint: { 'text-color': '#0f172a', 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 },
+    paint: {
+      'text-color': '#0f172a',
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1.4,
+      'text-translate': translate,
+    },
   }
 
   const boundaryLayer: LineLayerSpecification = {
     id: 'ward-outline',
     type: 'line',
     source: 'boundary',
-    paint: { 'line-color': '#1d4ed8', 'line-width': 2.5, 'line-dasharray': [3, 2] },
+    paint: {
+      'line-color': '#1d4ed8',
+      'line-width': 2.5,
+      'line-dasharray': [3, 2],
+      'line-translate': translate,
+    },
   }
 
   const addPinAt = useCallback(
@@ -410,21 +522,23 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
       map?.dragPan.disable()
       dragMoved.current = false
-      dragPinRef.current = { hid, lng: lngLat.lng, lat: lngLat.lat }
+      const start = unnudge(lngLat)
+      dragPinRef.current = { hid, lng: start.lng, lat: start.lat }
       setDragPin(dragPinRef.current)
       return true
     },
-    [selectMode, draft, placingPin],
+    [selectMode, draft, placingPin, unnudge],
   )
 
   const movePinDrag = useCallback((lngLat: { lng: number; lat: number }): boolean => {
     const pin = dragPinRef.current
     if (!pin) return false
     dragMoved.current = true
-    dragPinRef.current = { ...pin, lng: lngLat.lng, lat: lngLat.lat }
+    const at = unnudge(lngLat)
+    dragPinRef.current = { ...pin, lng: at.lng, lat: at.lat }
     setDragPin(dragPinRef.current)
     return true
-  }, [])
+  }, [unnudge])
 
   const endPinDrag = useCallback(async (): Promise<boolean> => {
     const pin = dragPinRef.current
@@ -542,7 +656,8 @@ export default function WardMap({ actorName }: { actorName: string }) {
       // Tracing swallows clicks: every one adds a vertex rather than selecting
       // whatever happens to be underneath.
       if (draft) {
-        setDraft((d) => [...(d ?? []), [e.lngLat.lng, e.lngLat.lat]])
+        const at = unnudge(e.lngLat)
+        setDraft((d) => [...(d ?? []), [at.lng, at.lat]])
         return
       }
       // In bulk mode a click toggles membership instead of opening the panel.
@@ -553,7 +668,8 @@ export default function WardMap({ actorName }: { actorName: string }) {
         return
       }
       if (placingPin) {
-        void addPinAt(e.lngLat.lng, e.lngLat.lat)
+        const at = unnudge(e.lngLat)
+        void addPinAt(at.lng, at.lat)
         return
       }
       const props = e.features?.[0]?.properties
@@ -565,7 +681,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         setSelected(null)
       }
     },
-    [placingPin, addPinAt, draft, selectMode],
+    [placingPin, addPinAt, draft, selectMode, unnudge],
   )
 
   /**
@@ -631,13 +747,30 @@ export default function WardMap({ actorName }: { actorName: string }) {
       (f): f is ParcelFeature => f.properties.kind === 'parcel',
     )
     const homes = parcelFeatures.filter((f) => f.properties.use === 'residence').length
-    const businesses = parcelFeatures.filter((f) => f.properties.use === 'business').length
-    const commonAreas = parcelFeatures.filter((f) => f.properties.use === 'common_area').length
     const pins = parcels.features.length - parcelFeatures.length
     const withHouseholds =
       parcelFeatures.filter((f) => f.properties.householdCount > 0).length + pins
-    return { homes, businesses, commonAreas, pins, withHouseholds }
+
+    // Per legend key, by the same rule the map colours and filters by.
+    const byKey: Record<string, number> = {}
+    const bump = (k: string) => (byKey[k] = (byKey[k] ?? 0) + 1)
+    for (const f of parcels.features) {
+      if (f.properties.kind === 'pin') {
+        bump(f.properties.status ?? 'unknown')
+        continue
+      }
+      const p = f.properties
+      if (p.use === 'business') bump('business')
+      else if (p.use === 'common_area') bump('common_area')
+      else if (p.householdCount === 0) bump('no_household')
+      else bump(p.status ?? 'unknown')
+    }
+    return { homes, pins, withHouseholds, byKey }
   }, [parcels])
+
+  const toggleKey = useCallback((key: string) => {
+    setHiddenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
+  }, [])
 
   return (
     <div className="relative h-dvh w-full">
@@ -649,6 +782,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         maxZoom={19}
         maxBounds={maxBounds}
         interactiveLayerIds={['parcel-fill', 'pin-circle']}
+        onLoad={() => setMapLoaded(true)}
         onClick={onClick}
         onMouseDown={onMouseDown}
         onMouseUp={onMouseUp}
@@ -704,25 +838,28 @@ export default function WardMap({ actorName }: { actorName: string }) {
               type="fill"
               source="draft"
               filter={['==', ['geometry-type'], 'Polygon'] as never}
-              paint={{ 'fill-color': '#2563eb', 'fill-opacity': 0.25 }}
+              paint={{ 'fill-color': '#2563eb', 'fill-opacity': 0.25, 'fill-translate': translate }}
             />
             <Layer
               id="draft-line"
               type="line"
               source="draft"
               filter={['!=', ['geometry-type'], 'Point'] as never}
-              paint={{ 'line-color': '#2563eb', 'line-width': 2 }}
+              paint={{ 'line-color': '#2563eb', 'line-width': 2, 'line-translate': translate }}
             />
             <Layer
               id="draft-vertex"
               type="circle"
               source="draft"
               filter={['==', ['geometry-type'], 'Point'] as never}
+              // Vertices are stored un-nudged, so they need the same shift as
+              // the parcels to sit back under the finger that placed them.
               paint={{
                 'circle-radius': 5,
                 'circle-color': '#ffffff',
                 'circle-stroke-color': '#2563eb',
                 'circle-stroke-width': 2,
+                'circle-translate': translate,
               }}
             />
           </Source>
@@ -775,49 +912,80 @@ export default function WardMap({ actorName }: { actorName: string }) {
               : `${counts.homes} homes · ${counts.withHouseholds} with a household`}
           </p>
 
+          {/* Always visible, collapsed card included: this is the control most
+              likely to be wanted while standing in front of a house. */}
+          <div className="mt-2 flex rounded-md bg-neutral-100 p-0.5">
+            {(
+              [
+                ['Map', false],
+                ['Satellite', true],
+              ] as const
+            ).map(([label, on]) => (
+              <button
+                key={label}
+                type="button"
+                aria-pressed={satellite === on}
+                onClick={() => {
+                  setSatellite(on)
+                  localStorage.setItem('ward:basemap', on ? 'satellite' : 'map')
+                }}
+                className={`flex-1 rounded px-2 py-1.5 text-xs font-medium ${
+                  satellite === on ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {controlsOpen && (
             <>
-              <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                  <li key={key} className="flex items-center gap-1.5 text-neutral-700">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                      style={{ background: STATUS_COLORS[key as keyof typeof STATUS_COLORS] }}
-                    />
-                    {label}
-                  </li>
-                ))}
-                <li className="flex items-center gap-1.5 text-neutral-700">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                    style={{ background: NO_HOUSEHOLD_COLOR }}
-                  />
-                  No household
-                </li>
-                <li className="flex items-center gap-1.5 text-neutral-700">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                    style={{ background: BUSINESS_COLOR }}
-                  />
-                  Business ({counts.businesses})
-                </li>
+              {/* The legend is the filter. Each key toggles everything drawn in
+                  that colour, so "where are the less-active families?" is one
+                  tap rather than a squint across a full map. */}
+              <ul className="mt-2 grid grid-cols-2 gap-x-2 gap-y-0.5">
+                {LEGEND.map(({ key, label, color }) => {
+                  const on = !hiddenKeys.includes(key)
+                  return (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => toggleKey(key)}
+                        aria-pressed={on}
+                        title={on ? `Hide ${label}` : `Show ${label}`}
+                        className={`flex w-full items-center gap-1.5 rounded px-1 py-1.5 text-left hover:bg-neutral-100 sm:py-1 ${
+                          on ? 'text-neutral-700' : 'text-neutral-400'
+                        }`}
+                      >
+                        <span
+                          aria-hidden
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-inset ring-black/10"
+                          // A hidden key keeps its swatch outline but loses the
+                          // fill, so the row reads as "off" rather than as a
+                          // colour nobody chose.
+                          style={{ background: on ? color : 'transparent' }}
+                        />
+                        <span className={`truncate ${on ? '' : 'line-through'}`}>{label}</span>
+                        <span className="ml-auto shrink-0 tabular-nums text-[10px] text-neutral-400">
+                          {counts.byKey[key] ?? 0}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
               </ul>
 
-              <div className="mt-2 space-y-2 border-t border-neutral-200 pt-2">
-                <label className="flex items-center gap-2 py-1.5 text-neutral-700">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={showCommonAreas}
-                    onChange={(e) => setShowCommonAreas(e.target.checked)}
-                  />
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                    style={{ background: COMMON_AREA_COLOR }}
-                  />
-                  Common areas ({counts.commonAreas})
-                </label>
+              {hiddenKeys.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHiddenKeys([])}
+                  className="mt-1 px-1 text-[11px] text-neutral-500 underline underline-offset-2"
+                >
+                  Show all {hiddenKeys.length} hidden
+                </button>
+              )}
 
+              <div className="mt-2 space-y-2 border-t border-neutral-200 pt-2">
                 {draft ? (
                   <div className="space-y-1.5">
                     <p className="text-[11px] text-neutral-600">
@@ -852,44 +1020,70 @@ export default function WardMap({ actorName }: { actorName: string }) {
                   </div>
                 ) : (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPlacingPin(false)
-                        setSelected(null)
-                        setDraft([])
-                      }}
-                      className={`w-full rounded-md border border-neutral-300 px-2.5 text-xs font-medium text-neutral-800 ${TAP}`}
-                    >
-                      Draw a parcel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPlacingPin(false)
-                        setSelected(null)
-                        setSelectMode(true)
-                      }}
-                      className={`w-full rounded-md border border-neutral-300 px-2.5 text-xs font-medium text-neutral-800 ${TAP}`}
-                    >
-                      Select many parcels
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPlacingPin((v) => !v)}
-                      aria-pressed={placingPin}
-                      className={`w-full rounded-md px-2.5 text-xs font-medium ${TAP} ${
-                        placingPin
-                          ? 'bg-blue-600 text-white'
-                          : 'border border-neutral-300 text-neutral-800'
-                      }`}
-                    >
-                      {placingPin
-                        ? coarse
+                    {/* One row of icons rather than three full-width buttons:
+                        these are used perhaps once a session, and stacked they
+                        cost more of a phone screen than the legend does. */}
+                    <div className="flex gap-1.5">
+                      <ToolButton
+                        label="Draw a parcel"
+                        hint="Trace an outline for a home the county has no parcel for"
+                        align="left"
+                        onClick={() => {
+                          setPlacingPin(false)
+                          setSelected(null)
+                          setDraft([])
+                        }}
+                        // A lot with corner handles. A regular pentagon read as
+                        // a star at 20px, which is not a thing this app has.
+                        icon={
+                          <>
+                            <path d="M5 6.5 18.5 5l1.5 12.5L6.5 19z" />
+                            <circle cx="5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
+                            <circle cx="18.5" cy="5" r="1.5" fill="currentColor" stroke="none" />
+                            <circle cx="20" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+                            <circle cx="6.5" cy="19" r="1.5" fill="currentColor" stroke="none" />
+                          </>
+                        }
+                      />
+                      <ToolButton
+                        label="Select many parcels"
+                        hint="Set the property type on a whole street at once"
+                        align="center"
+                        onClick={() => {
+                          setPlacingPin(false)
+                          setSelected(null)
+                          setSelectMode(true)
+                        }}
+                        icon={
+                          <>
+                            <rect x="3.5" y="5.5" width="17" height="13" rx="1.5" strokeDasharray="3 2.5" />
+                            <path d="M8 12.4l2.6 2.6L16.5 9" />
+                          </>
+                        }
+                      />
+                      <ToolButton
+                        label="Drop a pin"
+                        hint="Mark a home that has no parcel to click on"
+                        align="right"
+                        pressed={placingPin}
+                        onClick={() => setPlacingPin((v) => !v)}
+                        icon={
+                          <>
+                            <path d="M12 21s6.5-6.1 6.5-10.5a6.5 6.5 0 1 0-13 0C5.5 14.9 12 21 12 21z" />
+                            <circle cx="12" cy="10.5" r="2.4" />
+                          </>
+                        }
+                      />
+                    </div>
+                    {/* An armed tool has to say so somewhere a tooltip cannot:
+                        the finger that pressed it is already off the button. */}
+                    {placingPin && (
+                      <p className="text-[11px] text-blue-700">
+                        {coarse
                           ? 'Tap the map to place it'
-                          : 'Click the map to place it — Esc to cancel'
-                        : 'Drop a pin instead'}
-                    </button>
+                          : 'Click the map to place it — Esc to cancel'}
+                      </p>
+                    )}
                     {/* Esc is the desktop way out; a phone needs a visible one. */}
                     {placingPin && coarse && (
                       <button
@@ -908,6 +1102,72 @@ export default function WardMap({ actorName }: { actorName: string }) {
                   </p>
                 )}
               </div>
+
+              {/*
+                Imagery alignment.
+                Esri's capture sits about four metres north of the county survey
+                here, so the correction is on by default and this is only the
+                escape hatch for the day that stops being true. Folded away: it
+                is a one-time calibration, not a thing to fiddle with in the
+                field, and it moves nothing in the database.
+              */}
+              {satellite && (
+                <div className="mt-2 border-t border-neutral-200 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowNudge((v) => !v)}
+                    aria-expanded={showNudge}
+                    className="text-[11px] text-neutral-400 underline underline-offset-2"
+                  >
+                    Imagery alignment
+                  </button>
+
+                  {showNudge && (
+                    <div className="mt-1.5 flex items-center gap-1 text-[11px] text-neutral-600">
+                      <span className="mr-auto">Nudge photo</span>
+                      {(
+                        [
+                          ['↑', -1, 'Move imagery up'],
+                          ['↓', 1, 'Move imagery down'],
+                        ] as const
+                      ).map(([glyph, step, title]) => (
+                        <button
+                          key={glyph}
+                          type="button"
+                          title={title}
+                          aria-label={title}
+                          onClick={() => {
+                            // Whole metres, and never a runaway: past ~15 m the
+                            // imagery is a different street, not a misalignment.
+                            const next = Math.max(-15, Math.min(15, nudge + step))
+                            setNudge(next)
+                            localStorage.setItem('ward:imagery-nudge', String(next))
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded border border-neutral-300 text-neutral-800"
+                        >
+                          {glyph}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNudge(DEFAULT_IMAGERY_NUDGE)
+                          localStorage.removeItem('ward:imagery-nudge')
+                        }}
+                        disabled={nudge === DEFAULT_IMAGERY_NUDGE}
+                        className="w-12 text-right tabular-nums text-neutral-500 underline underline-offset-2 disabled:no-underline"
+                        title={
+                          nudge === DEFAULT_IMAGERY_NUDGE
+                            ? 'The measured default'
+                            : `Reset to ${DEFAULT_IMAGERY_NUDGE} m`
+                        }
+                      >
+                        {nudge > 0 ? `+${nudge}` : nudge} m
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -1005,6 +1265,80 @@ export default function WardMap({ actorName }: { actorName: string }) {
           onChanged={load}
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * One map tool, as an icon.
+ *
+ * The label is not decoration that got dropped — it is the accessible name and
+ * the tooltip, so the button is still legible to a screen reader and to anyone
+ * who cannot guess a pictogram. The tooltip opens on focus as well as hover,
+ * which is what makes it reachable by keyboard and by a first tap on a phone,
+ * where hover does not exist.
+ */
+function ToolButton({
+  label,
+  hint,
+  icon,
+  align,
+  pressed = false,
+  onClick,
+}: {
+  label: string
+  hint: string
+  icon: React.ReactNode
+  /**
+   * Which edge the tooltip hangs from. The card is barely wider than three
+   * tooltips, so a centred one under the first or last button runs off the side
+   * of a phone.
+   */
+  align: 'left' | 'center' | 'right'
+  pressed?: boolean
+  onClick: () => void
+}) {
+  const anchor = {
+    left: 'left-0',
+    center: 'left-1/2 -translate-x-1/2',
+    right: 'right-0',
+  }[align]
+  return (
+    <div className="group relative flex-1">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={pressed}
+        aria-label={`${label}. ${hint}`}
+        // Native tooltip as well: it survives a long hover without the card
+        // having to stay open, and costs nothing.
+        title={`${label} — ${hint}`}
+        className={`flex min-h-11 w-full items-center justify-center rounded-md sm:min-h-9 ${
+          pressed
+            ? 'bg-blue-600 text-white'
+            : 'border border-neutral-300 text-neutral-700 hover:bg-neutral-100'
+        }`}
+      >
+        <svg
+          aria-hidden
+          viewBox="0 0 24 24"
+          className="h-5 w-5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {icon}
+        </svg>
+      </button>
+      <span
+        role="tooltip"
+        className={`pointer-events-none absolute top-full z-30 mt-1 hidden w-44 rounded-md bg-neutral-900 px-2 py-1.5 text-[11px] leading-snug text-white shadow-lg group-hover:block group-focus-within:block ${anchor}`}
+      >
+        <span className="font-medium">{label}</span>
+        <span className="text-neutral-300"> — {hint}</span>
+      </span>
     </div>
   )
 }

@@ -39,7 +39,13 @@ yarn-error.log*
 
 # Directory exports: real member names, home addresses and phone numbers.
 # The database is the only place this data belongs — git history is forever.
-/data/
+# Excluding the directory itself would make the negation below unreachable —
+# git never descends into an ignored directory.
+/data/*
+# Except the POI extract: public business names on public streets, no member
+# data in it, and committing it means the business import runs anywhere without
+# a duckdb install.
+!/data/overture-places.json
 
 # typescript
 *.tsbuildinfo

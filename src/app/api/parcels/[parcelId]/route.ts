@@ -7,7 +7,10 @@ import { PARCEL_USES, type ParcelDetail } from '@/lib/types'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/** Full detail for one parcel: read-only county fields plus every household on it. */
+/**
+ * Full detail for one parcel: read-only county fields, every household on it,
+ * and every business tenant on it.
+ */
 export async function GET(_req: Request, ctx: { params: Promise<{ parcelId: string }> }) {
   try {
     await requireSession()
@@ -28,9 +31,24 @@ export async function GET(_req: Request, ctx: { params: Promise<{ parcelId: stri
         'coparcel_url', p.coparcel_url,
         'in_ward', p.in_ward,
         'use_type', p.use_type,
-        'business_name', p.business_name,
         'source', p.source
       ) AS parcel,
+      coalesce((
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'id', b.id,
+            'parcel_id', b.parcel_id,
+            'name', b.name,
+            'category', b.category,
+            'notes', b.notes,
+            'source', b.source,
+            'updated_at', b.updated_at,
+            'updated_by', b.updated_by
+          ) ORDER BY b.sort_order, b.created_at
+        )
+        FROM businesses b
+        WHERE b.parcel_id = p.parcel_id
+      ), '[]'::jsonb) AS businesses,
       coalesce((
         SELECT jsonb_agg(
           jsonb_build_object(
@@ -68,21 +86,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ parcelId: stri
 
 const Patch = z.object({
   use_type: z.enum(PARCEL_USES).optional(),
-  business_name: z
-    .string()
-    .trim()
-    .max(160)
-    .nullish()
-    .transform((v) => (v ? v : null))
-    .optional(),
   in_ward: z.boolean().optional(),
 })
 
 /**
- * Ward-side overrides on a county parcel: what the property is used for, a
- * business name, and whether it counts as inside the ward at all.
+ * Ward-side overrides on a county parcel: what the property is used for, and
+ * whether it counts as inside the ward at all. Business names live in their own
+ * table now — see /api/businesses.
  *
- * These three columns are the only ones on `parcels` the app writes, and the
+ * These two columns are the only ones on `parcels` the app writes, and the
  * monthly import is written to preserve them. Everything else on this table is
  * county data and is refreshed wholesale.
  *
@@ -108,14 +120,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ parcelId:
     )
   }
   const f = parsed.data
-  const has = (k: keyof typeof f) => k in f
 
   const updated = (await sql`
     UPDATE parcels SET
       use_type      = coalesce(${f.use_type ?? null}::text::parcel_use, use_type),
       in_ward       = coalesce(${f.in_ward ?? null}::boolean, in_ward),
-      business_name = CASE WHEN ${has('business_name')}::boolean
-        THEN ${f.business_name ?? null}::text ELSE business_name END,
       ward_edited_at = now()
     WHERE parcel_id = ${parcelId}
     RETURNING parcel_id
