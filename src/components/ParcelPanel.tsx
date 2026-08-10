@@ -296,15 +296,18 @@ export default function ParcelPanel({
           <div className="px-4 py-10 text-center">
             <p className="text-sm text-neutral-600">
               {isBusiness
-                ? 'No household here — this is a business.'
+                ? 'Marked as a business — nobody lives here.'
                 : 'No household recorded on this parcel.'}
             </p>
-            <button
-              onClick={addHousehold}
-              className="mt-3 rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
-            >
-              Add household
-            </button>
+            {/* Nothing to add on a business: switch the property type back to Home first. */}
+            {!isBusiness && (
+              <button
+                onClick={addHousehold}
+                className="mt-3 rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
+              >
+                Add household
+              </button>
+            )}
           </div>
         )}
 
@@ -329,7 +332,9 @@ export default function ParcelPanel({
             key={household.id}
             household={household}
             showAddress={target.kind === 'pin'}
-            canAddHousehold={target.kind === 'parcel'}
+            // A business holds no households, so offering a second one is noise.
+            // Reachable when a parcel is marked business after a household exists.
+            canAddHousehold={target.kind === 'parcel' && !isBusiness}
             onLocalChange={updateLocal}
             onCommit={(body) => patchHousehold(household.id, body)}
             onDelete={() => deleteHousehold(household.id, household.family_name)}
