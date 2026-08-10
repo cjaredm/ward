@@ -64,6 +64,16 @@ export default function WardMap({ actorName }: { actorName: string }) {
   const [picked, setPicked] = useState<string[]>([])
   const [box, setBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
   const boxStart = useRef<{ x: number; y: number } | null>(null)
+  /**
+   * The pin currently being dragged, at its live (unsaved) position.
+   *
+   * Mirrored in a ref because the pointer handlers have to branch on "am I
+   * dragging?" the instant they fire — a state read there is one render behind.
+   */
+  const [dragPin, setDragPin] = useState<{ hid: string; lng: number; lat: number } | null>(null)
+  const dragPinRef = useRef<{ hid: string; lng: number; lat: number } | null>(null)
+  /** Distinguishes a drag from a tap, so releasing a pin does not also open it. */
+  const dragMoved = useRef(false)
 
   /**
    * Refreshes parcel data only.
@@ -324,17 +334,84 @@ export default function WardMap({ actorName }: { actorName: string }) {
     else map.boxZoom.enable()
   }, [selectMode])
 
+  /**
+   * Pin dragging.
+   *
+   * The directory import drops a pin for every household the county has no parcel
+   * for, and the ones it cannot place at all land in a cluster in the middle of
+   * the ward. Without a way to move them the only fix is delete-and-re-drop,
+   * which throws away the names and phone numbers already on the household.
+   *
+   * MapLibre has no draggable feature, so this is the manual version: grab on
+   * pointer-down over the pin layer, follow the pointer with dragPan turned off,
+   * save on release.
+   */
+  const startPinDrag = useCallback(
+    (point: { x: number; y: number }, lngLat: { lng: number; lat: number }): boolean => {
+      if (selectMode || draft || placingPin) return false
+      const map = mapRef.current?.getMap()
+      // queryRenderedFeatures rather than e.features: this has to be exact, and
+      // pointer-down is not one of the events react-map-gl reliably enriches.
+      const hit = map?.queryRenderedFeatures([point.x, point.y], { layers: ['pin-circle'] })?.[0]
+      const hid = hit?.properties?.hid
+      if (typeof hid !== 'string') return false
+
+      map?.dragPan.disable()
+      dragMoved.current = false
+      dragPinRef.current = { hid, lng: lngLat.lng, lat: lngLat.lat }
+      setDragPin(dragPinRef.current)
+      return true
+    },
+    [selectMode, draft, placingPin],
+  )
+
+  const movePinDrag = useCallback((lngLat: { lng: number; lat: number }): boolean => {
+    const pin = dragPinRef.current
+    if (!pin) return false
+    dragMoved.current = true
+    dragPinRef.current = { ...pin, lng: lngLat.lng, lat: lngLat.lat }
+    setDragPin(dragPinRef.current)
+    return true
+  }, [])
+
+  const endPinDrag = useCallback(async (): Promise<boolean> => {
+    const pin = dragPinRef.current
+    if (!pin) return false
+    dragPinRef.current = null
+    mapRef.current?.getMap()?.dragPan.enable()
+    setDragPin(null)
+    if (!dragMoved.current) return true
+
+    const res = await fetch(`/api/households/${encodeURIComponent(pin.hid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lng: pin.lng, lat: pin.lat }),
+    })
+    if (!res.ok) setError('Could not move that pin. Reload and try again.')
+    // Reload either way: on failure this snaps the pin back to where it really is.
+    await load()
+    return true
+  }, [load])
+
   const onMouseDown = useCallback(
     (e: MapLayerMouseEvent) => {
+      if (startPinDrag(e.point, e.lngLat)) {
+        e.preventDefault()
+        return
+      }
       if (!selectMode || !e.originalEvent.shiftKey) return
       e.preventDefault()
       boxStart.current = { x: e.point.x, y: e.point.y }
       setBox({ x1: e.point.x, y1: e.point.y, x2: e.point.x, y2: e.point.y })
     },
-    [selectMode],
+    [selectMode, startPinDrag],
   )
 
   const onMouseUp = useCallback(() => {
+    if (dragPinRef.current) {
+      void endPinDrag()
+      return
+    }
     const start = boxStart.current
     boxStart.current = null
     if (!start || !box) {
@@ -356,7 +433,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
       setPicked((prev) => Array.from(new Set([...prev, ...pids])))
     }
     setBox(null)
-  }, [box])
+  }, [box, endPinDrag])
 
   const applyBulk = useCallback(
     async (use_type: ParcelUse) => {
@@ -404,6 +481,12 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
   const onClick = useCallback(
     (e: MapLayerMouseEvent) => {
+      // A pin that was just dragged also emits a click on release. Opening the
+      // panel there would cover the house the user was aiming at.
+      if (dragMoved.current) {
+        dragMoved.current = false
+        return
+      }
       // Tracing swallows clicks: every one adds a vertex rather than selecting
       // whatever happens to be underneath.
       if (draft) {
@@ -433,6 +516,22 @@ export default function WardMap({ actorName }: { actorName: string }) {
     [placingPin, addPinAt, draft, selectMode],
   )
 
+  /**
+   * What the map actually renders: the fetched collection, with the pin being
+   * dragged moved to the pointer. The saved position only changes on release.
+   */
+  const mapData = useMemo(() => {
+    if (!dragPin) return parcels
+    return {
+      ...parcels,
+      features: parcels.features.map((f) =>
+        f.properties.kind === 'pin' && f.properties.hid === dragPin.hid
+          ? { ...f, geometry: { type: 'Point' as const, coordinates: [dragPin.lng, dragPin.lat] } }
+          : f,
+      ),
+    } as ParcelCollection
+  }, [parcels, dragPin])
+
   /** The outline being traced: filled area once it can close, plus the vertices. */
   const draftData = useMemo(() => {
     if (!draft || draft.length === 0) return null
@@ -457,16 +556,20 @@ export default function WardMap({ actorName }: { actorName: string }) {
     return { type: 'FeatureCollection', features }
   }, [draft])
 
-  const onMouseMove = useCallback((e: MapLayerMouseEvent) => {
-    if (boxStart.current) {
-      const s = boxStart.current
-      setBox({ x1: s.x, y1: s.y, x2: e.point.x, y2: e.point.y })
-      return
-    }
-    const props = e.features?.[0]?.properties
-    const id = props?.kind === 'pin' ? props.hid : props?.pid
-    setHovered(typeof id === 'string' ? id : null)
-  }, [])
+  const onMouseMove = useCallback(
+    (e: MapLayerMouseEvent) => {
+      if (movePinDrag(e.lngLat)) return
+      if (boxStart.current) {
+        const s = boxStart.current
+        setBox({ x1: s.x, y1: s.y, x2: e.point.x, y2: e.point.y })
+        return
+      }
+      const props = e.features?.[0]?.properties
+      const id = props?.kind === 'pin' ? props.hid : props?.pid
+      setHovered(typeof id === 'string' ? id : null)
+    },
+    [movePinDrag],
+  )
 
   const counts = useMemo(() => {
     const parcelFeatures = parcels.features.filter(
@@ -496,10 +599,24 @@ export default function WardMap({ actorName }: { actorName: string }) {
         onMouseUp={onMouseUp}
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHovered(null)}
-        cursor={draft || placingPin || selectMode ? 'crosshair' : hovered ? 'pointer' : 'grab'}
+        // Touch mirrors mouse so a pin can be dragged onto its house on a phone,
+        // which is where this app is used.
+        onTouchStart={(e) => startPinDrag(e.point, e.lngLat)}
+        onTouchMove={(e) => movePinDrag(e.lngLat)}
+        onTouchEnd={() => void endPinDrag()}
+        onTouchCancel={() => void endPinDrag()}
+        cursor={
+          dragPin
+            ? 'grabbing'
+            : draft || placingPin || selectMode
+              ? 'crosshair'
+              : hovered
+                ? 'pointer'
+                : 'grab'
+        }
         style={{ width: '100%', height: '100%' }}
       >
-        <Source id="parcels" type="geojson" data={parcels}>
+        <Source id="parcels" type="geojson" data={mapData}>
           <Layer {...fillLayer} />
           <Layer {...outlineLayer} />
           <Layer {...labelLayer} />

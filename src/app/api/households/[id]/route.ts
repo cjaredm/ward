@@ -22,14 +22,21 @@ const PersonInput = z.object({
   email: nullableText(200),
 })
 
-const Patch = z.object({
-  family_name: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(HOUSEHOLD_STATUSES).optional(),
-  notes: nullableText(4000).optional(),
-  // Only meaningful for pinned households; parcel-backed ones show the county address.
-  address: nullableText(200).optional(),
-  people: z.array(PersonInput).max(30).optional(),
-})
+const Patch = z
+  .object({
+    family_name: z.string().trim().min(1).max(120).optional(),
+    status: z.enum(HOUSEHOLD_STATUSES).optional(),
+    notes: nullableText(4000).optional(),
+    // Only meaningful for pinned households; parcel-backed ones show the county address.
+    address: nullableText(200).optional(),
+    people: z.array(PersonInput).max(30).optional(),
+    // Dragging a pin to the right house. Pairs only — half a coordinate is a bug.
+    lng: z.number().gte(-180).lte(180).optional(),
+    lat: z.number().gte(-90).lte(90).optional(),
+  })
+  .refine((b) => (b.lng === undefined) === (b.lat === undefined), {
+    message: 'lng and lat must be sent together',
+  })
 
 /**
  * One household with its people, shaped like ParcelDetail so the panel can render
@@ -92,7 +99,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       { status: 400 },
     )
   }
-  const { people, ...fields } = parsed.data
+  const { people, lng, lat, ...fields } = parsed.data
 
   const exists = (await sql`
     SELECT 1 FROM households WHERE id = ${id} AND deleted_at IS NULL
@@ -116,6 +123,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         THEN ${fields.notes ?? null}::text ELSE notes END,
       address = CASE WHEN ${has('address')}::boolean
         THEN ${fields.address ?? null}::text ELSE address END,
+      -- Only a pinned household can move. A parcel-backed one is located by its
+      -- polygon, and giving it a point as well would put a second marker on the
+      -- map for the same family.
+      location = CASE WHEN ${lng ?? null}::double precision IS NOT NULL AND parcel_id IS NULL
+        THEN ST_SetSRID(ST_MakePoint(${lng ?? null}, ${lat ?? null}), 4326) ELSE location END,
       updated_at = now(),
       updated_by = ${actor}
     WHERE id = ${id}
@@ -145,7 +157,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   // Field names only, never values: the audit trail must not become a second
   // copy of the PII that "Delete this household" is supposed to erase.
-  const changed = Object.keys(fields).concat(people ? ['people'] : [])
+  const changed = Object.keys(fields)
+    .concat(people ? ['people'] : [])
+    .concat(lng === undefined ? [] : ['location'])
   statements.push(sql`
     INSERT INTO audit_log (actor, action, entity_id, diff)
     VALUES (${actor}, 'update_household', ${id}, ${JSON.stringify({ fields: changed })})

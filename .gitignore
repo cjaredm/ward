@@ -37,6 +37,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Directory exports: real member names, home addresses and phone numbers.
+# The database is the only place this data belongs — git history is forever.
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

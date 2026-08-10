@@ -51,6 +51,7 @@ and throws a specific error rather than a generic auth failure when it doesn't.
 npm run migrate          # applies migrations/*.sql once each
 npm run seed:boundary    # geojson.json -> ward_boundary
 npm run import:parcels   # UGRC county layer -> parcels, clipped to the boundary
+npm run import:directory # optional: a ward directory export -> households + people
 ```
 
 Expected import summary: **539 parcels kept**, 93 of them non-residential (blank `PARCEL_ADD`
@@ -66,10 +67,85 @@ SELECT parcel_id, address FROM parcels WHERE address ILIKE '%PAINTED VISTA%';
 2. `vercel.json` already pins functions to `pdx1` (Portland) so they sit in the same AWS
    region as Neon — same-region hop instead of a cross-country round trip on every query.
 3. Settings → Environment Variables: add everything from `.env.local` to all three
-   environments. `DATABASE_URL_UNPOOLED` is only needed if you later expose the admin
-   re-import route.
+   environments. `DATABASE_URL_UNPOOLED` is **required** — the build runs
+   `sync:boundary` against the direct endpoint (see below).
 
 Push to `main` deploys. That is the whole pipeline.
+
+## Redrawing the ward boundary
+
+`geojson.json` is the source of truth for the boundary. To change it: edit the file, commit,
+deploy. Nothing else.
+
+`npm run build` runs [scripts/sync-boundary.ts](scripts/sync-boundary.ts), which makes the
+database agree with the file and then re-imports parcels for the new outline. Run it by hand
+with `npm run sync:boundary`.
+
+It is cheap to leave in the build because it does nothing when nothing changed:
+`ward_boundary.source_sha` holds the SHA-256 of the file the stored boundary came from, so an
+unchanged file costs one query. The ArcGIS fetch and the re-import only happen on a build
+where the outline actually moved.
+
+**Nothing that holds ward data is ever deleted.** A county parcel that falls outside the new
+boundary is kept — not removed — if it has households on it or if anyone has hand-set its
+property type, business name or `in_ward` (tracked in `parcels.ward_edited_at`, stamped by the
+app on every parcel edit). Those parcels are listed at the end of the run for review. Shrinking
+the ward hides nothing you typed in; hand-drawn parcels (`source = 'manual'`) are never touched
+at all.
+
+Guard rails:
+
+- **Preview deploys do not sync.** Every branch carries its own `geojson.json`, and letting
+  previews write would let a stale branch silently revert production's boundary. Production
+  builds and local runs only.
+- **Concurrent builds serialize** on a Postgres advisory lock; the second one finds the SHA
+  current and no-ops.
+- **A failed sync fails the build.** Deploying the old boundary after someone deliberately
+  edited the file is the worse outcome. `BOUNDARY_SYNC=warn` downgrades it to a warning,
+  `BOUNDARY_SYNC=off` skips it, `BOUNDARY_SYNC=force` runs it even on a preview.
+
+Schema migrations are still **not** in the build — see [scripts/migrate.ts](scripts/migrate.ts).
+
+## Loading a ward directory
+
+[scripts/import-directory.ts](scripts/import-directory.ts) turns a printed directory export
+into households, matching each family's address against the county parcels.
+
+```sh
+npm run import:directory                       # dry run — prints the plan, writes nothing
+npm run import:directory -- --apply
+npm run import:directory -- --apply --status active --no-people
+```
+
+Input is `data/directory.tsv`: `<name as printed><TAB><address as printed>`, one per line, name
+split at the first comma. **`/data/` is gitignored** — it is a list of real names and home
+addresses, and git history is forever.
+
+Where each family lands:
+
+| directory row | result |
+| --- | --- |
+| address matches a parcel | household on that parcel |
+| address matches a parcel marked **business** | pin dropped at that parcel's centroid |
+| address matches nothing, street is known | pin interpolated between its numbered neighbours |
+| address matches nothing at all | pin parked at the ward centre |
+| no address printed | pin parked at the ward centre |
+
+Several families at one address become several households on one parcel — 1579 S Scenic Sunrise
+Dr takes four. Two rows sharing an address *and* a surname become one household with two people.
+
+Matching is by house number plus street name, with the directional and the street type used only
+to break ties, so `1594 Amity Lane` finds `1594 S AMITY LN`. A one- or two-character typo in the
+street name is forgiven within the same house number (`1651 E Sunscrest Cir` →
+`1651 E SUNCREST CIR`). Anything genuinely ambiguous is pinned rather than guessed at, and every
+non-exact match is printed for review.
+
+Re-running adds nothing twice: a family already on that parcel, or already pinned with that
+address, is skipped. The script only ever inserts — it never updates or deletes — so hand-edits
+made in the app always win.
+
+Pins parked at the ward centre are meant to be dragged onto their houses: press and drag a pin
+on the map, on desktop or on a phone.
 
 ## Monthly refresh
 
@@ -80,15 +156,17 @@ npm run test:clobber     # proves the import does not destroy household data
 npm run import:parcels
 ```
 
-`test:clobber` seeds a household plus manual `in_ward` / `is_residential` overrides, re-runs
-the import, and asserts everything survived. If it fails, **do not run the refresh** — the
-import is eating months of hand-entered work.
+`test:clobber` seeds a household plus the manual `in_ward` / `use_type` / `business_name` /
+`ward_edited_at` overrides on a **county** parcel, re-runs the import, and asserts everything
+survived. If it fails, **do not run the refresh** — the import is eating months of hand-entered
+work.
 
 ## Notes
 
 - **Migrations never run in the Vercel build.** Builds run on every preview and can run
   concurrently; concurrent schema migrations corrupt databases. Run `npm run migrate` from a
-  terminal before pushing code that needs it.
+  terminal before pushing code that needs it. The boundary sync is different and does run in the
+  build — it is idempotent, SHA-gated and lock-protected; see above.
 - The app runtime uses the Neon **HTTP** driver ([src/lib/db.ts](src/lib/db.ts)); scripts use a
   plain `pg` TCP client on the direct URL ([scripts/lib/pg.ts](scripts/lib/pg.ts)). Both on
   purpose — see the comments in each.

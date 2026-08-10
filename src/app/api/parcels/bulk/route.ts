@@ -60,7 +60,10 @@ export async function POST(req: NextRequest) {
         -- leaving it behind puts a shop name on somebody's house.
         business_name = CASE
           WHEN ${use_type ?? null}::text IS NOT NULL AND ${use_type ?? null}::text <> 'business'
-          THEN NULL ELSE business_name END
+          THEN NULL ELSE business_name END,
+        -- Marks these as carrying ward work, so a redrawn boundary can never
+        -- delete them out from under the person who classified them.
+        ward_edited_at = now()
       WHERE parcel_id = ANY(${parcel_ids}::text[])
       RETURNING parcel_id
     )

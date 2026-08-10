@@ -23,8 +23,14 @@ function check(label: string, actual: unknown, expected: unknown) {
 
 run(async () => {
   const seeded = await withClient(async (client) => {
+    // source = 'county' is required, not cosmetic. Hand-drawn parcels are named
+    // 'MANUAL-<uuid>', which sorts ahead of every county 'W-...' id, so once the
+    // first outline was traced this test started seeding a parcel the import is
+    // designed never to touch — and then asserting the import had touched it.
+    // It also restored that parcel to county defaults on the way out, quietly
+    // retyping a hand-drawn one.
     const parcel = await client.query<{ parcel_id: string }>(
-      `SELECT parcel_id FROM parcels ORDER BY parcel_id LIMIT 1`,
+      `SELECT parcel_id FROM parcels WHERE source = 'county' ORDER BY parcel_id LIMIT 1`,
     )
     if (parcel.rowCount === 0) {
       throw new Error('No parcels in the database — run `npm run import:parcels` first.')
@@ -46,9 +52,11 @@ run(async () => {
       [householdId, MARKER],
     )
 
-    // Flip both manual overrides away from their defaults so a clobber is visible.
+    // Flip every manual override away from its default so a clobber is visible.
     await client.query(
-      `UPDATE parcels SET in_ward = false, use_type = 'business', business_name = $2 WHERE parcel_id = $1`,
+      `UPDATE parcels SET in_ward = false, use_type = 'business', business_name = $2,
+                          ward_edited_at = now()
+       WHERE parcel_id = $1`,
       [parcelId, MARKER],
     )
 
@@ -98,9 +106,12 @@ run(async () => {
         in_ward: boolean
         use_type: string
         business_name: string | null
+        edited: boolean
         recent: boolean
       }>(
-        `SELECT in_ward, use_type, business_name, imported_at > now() - interval '10 minutes' AS recent
+        `SELECT in_ward, use_type, business_name,
+                ward_edited_at IS NOT NULL AS edited,
+                imported_at > now() - interval '10 minutes' AS recent
          FROM parcels WHERE parcel_id = $1`,
         [seeded.parcelId],
       )
@@ -109,6 +120,9 @@ run(async () => {
         check('in_ward override preserved', o.rows[0].in_ward, false)
         check('use_type override preserved', o.rows[0].use_type, 'business')
         check('business_name override preserved', o.rows[0].business_name, MARKER)
+        // Without this the parcel loses its protection and the next boundary
+        // change is free to delete it along with everything typed into it.
+        check('ward_edited_at preserved', o.rows[0].edited, true)
         // Sanity: proves the import actually ran over this row rather than skipping it,
         // which would make the assertions above vacuously true.
         check('import actually touched this parcel', o.rows[0].recent, true)
@@ -119,7 +133,7 @@ run(async () => {
       await client.query(`DELETE FROM households WHERE id = $1`, [seeded.householdId]) // people cascade
       await client.query(
         `UPDATE parcels
-         SET in_ward = true, business_name = NULL,
+         SET in_ward = true, business_name = NULL, ward_edited_at = NULL,
              use_type = CASE WHEN address IS NOT NULL AND btrim(address) <> ''
                              THEN 'residence'::parcel_use ELSE 'common_area'::parcel_use END
          WHERE parcel_id = $1`,

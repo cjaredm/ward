@@ -4,13 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/copy-maplibre-worker.mjs && next dev",
-    "build": "node scripts/copy-maplibre-worker.mjs && next build",
+    "build": "node scripts/copy-maplibre-worker.mjs && tsx scripts/sync-boundary.ts && next build",
     "copy:worker": "node scripts/copy-maplibre-worker.mjs",
     "start": "next start",
     "lint": "eslint",
     "migrate": "tsx scripts/migrate.ts",
+    "sync:boundary": "tsx scripts/sync-boundary.ts",
     "seed:boundary": "tsx scripts/seed-boundary.ts",
     "import:parcels": "tsx scripts/import-parcels.ts",
+    "import:directory": "tsx scripts/import-directory.ts",
     "hash-password": "tsx scripts/hash-password.ts",
     "test:clobber": "tsx scripts/test-import-clobber.ts"
   },

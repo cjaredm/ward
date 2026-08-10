@@ -85,6 +85,11 @@ const Patch = z.object({
  * These three columns are the only ones on `parcels` the app writes, and the
  * monthly import is written to preserve them. Everything else on this table is
  * county data and is refreshed wholesale.
+ *
+ * Stamping ward_edited_at is what stops the import from ever deleting this
+ * parcel, even if a redrawn boundary puts it out of range. Classifying parcels
+ * by hand is the slowest work in this app; it does not get thrown away because
+ * an outline moved.
  */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ parcelId: string }> }) {
   let actor: string
@@ -110,7 +115,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ parcelId:
       use_type      = coalesce(${f.use_type ?? null}::text::parcel_use, use_type),
       in_ward       = coalesce(${f.in_ward ?? null}::boolean, in_ward),
       business_name = CASE WHEN ${has('business_name')}::boolean
-        THEN ${f.business_name ?? null}::text ELSE business_name END
+        THEN ${f.business_name ?? null}::text ELSE business_name END,
+      ward_edited_at = now()
     WHERE parcel_id = ${parcelId}
     RETURNING parcel_id
   `) as { parcel_id: string }[]

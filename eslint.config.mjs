@@ -15,6 +15,8 @@ const eslintConfig = [
     ignores: [
       "node_modules/**",
       ".next/**",
+      // NEXT_DIST_DIR=.next-verify npm run build — same build output, different dir.
+      ".next-verify/**",
       "out/**",
       "build/**",
       "next-env.d.ts",
