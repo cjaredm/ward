@@ -49,6 +49,22 @@ export default function ParcelPanel({
   const [activeIdx, setActiveIdx] = useState(0)
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
   const [, forceTick] = useState(0)
+  /**
+   * True while this is rendered as a bottom sheet rather than a side panel.
+   *
+   * The sheet covers the map, so a save there ends with the panel out of the
+   * way; the desktop panel sits beside the map and has no reason to close.
+   */
+  const [isSheet, setIsSheet] = useState(false)
+
+  useEffect(() => {
+    // Matches the `sm:` breakpoint the layout below switches on.
+    const mq = window.matchMedia('(max-width: 639px)')
+    const sync = () => setIsSheet(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   const url =
     target.kind === 'parcel'
@@ -89,7 +105,7 @@ export default function ParcelPanel({
    * request is the failure mode that matters.
    */
   const patchHousehold = useCallback(
-    async (id: string, body: Record<string, unknown>) => {
+    async (id: string, body: Record<string, unknown>): Promise<boolean> => {
       setSave({ status: 'saving' })
       try {
         const res = await fetch(`/api/households/${id}`, {
@@ -99,12 +115,14 @@ export default function ParcelPanel({
         })
         if (!res.ok) {
           setSave({ status: 'error', message: 'Not saved — check your connection and press Save.' })
-          return
+          return false
         }
         setSave({ status: 'saved', at: Date.now() })
         onChanged()
+        return true
       } catch {
         setSave({ status: 'error', message: 'Not saved — check your connection and press Save.' })
+        return false
       }
     },
     [onChanged],
@@ -345,8 +363,12 @@ export default function ParcelPanel({
             // A business holds no households, so offering a second one is noise.
             // Reachable when a parcel is marked business after a household exists.
             canAddHousehold={target.kind === 'parcel' && !isBusiness}
+            saving={save.status === 'saving'}
             onLocalChange={updateLocal}
             onCommit={(body) => patchHousehold(household.id, body)}
+            onSaved={() => {
+              if (isSheet) onClose()
+            }}
             onDelete={() => deleteHousehold(household.id, household.family_name)}
             onAddHousehold={addHousehold}
           />
@@ -379,34 +401,87 @@ function HouseholdForm({
   household,
   showAddress,
   canAddHousehold,
+  saving,
   onLocalChange,
   onCommit,
+  onSaved,
   onDelete,
   onAddHousehold,
 }: {
   household: Household
   showAddress: boolean
   canAddHousehold: boolean
+  saving: boolean
   onLocalChange: (p: Partial<Household>) => void
-  onCommit: (body: Record<string, unknown>) => void
+  onCommit: (body: Record<string, unknown>) => Promise<boolean>
+  onSaved: () => void
   onDelete: () => void
   onAddHousehold: () => void
 }) {
+  /**
+   * Every field is controlled so Save can send the form as it stands.
+   *
+   * Previously Notes and Address only reached the server through their own blur
+   * handler, so Save wrote a body that did not contain them — and tapping Save
+   * straight from the notes box raced its own blur. Remounted per household by
+   * the `key` on this component, so these initialisers re-run on switch.
+   */
+  const [familyName, setFamilyName] = useState(household.family_name)
+  const [address, setAddress] = useState(household.address ?? '')
+  const [status, setStatus] = useState<HouseholdStatus>(household.status)
+  const [notes, setNotes] = useState(household.notes ?? '')
   const [people, setPeople] = useState<Person[]>(household.people)
+  /** Set by any edit, cleared by any write — see commitIfDirty. */
+  const dirty = useRef(false)
 
-  function commitPeople(next: Person[]) {
-    setPeople(next)
-    onCommit({
-      people: next
+  /** The whole household, in the shape PATCH /api/households/:id expects. */
+  const fullBody = useCallback(
+    (nextPeople: Person[] = people): Record<string, unknown> => ({
+      // A blank name would fail validation and lose the rest of the edit with it.
+      family_name: familyName.trim() || household.family_name,
+      status,
+      notes: notes.trim() || null,
+      ...(showAddress ? { address: address.trim() || null } : {}),
+      // A person with no name yet is a half-typed row, not a deletion.
+      people: nextPeople
         .filter((p) => p.full_name.trim())
         .map((p) => ({
           ...(p.id.startsWith('new:') ? {} : { id: p.id }),
-          full_name: p.full_name,
-          role: p.role,
-          phone: p.phone,
-          email: p.email,
+          full_name: p.full_name.trim(),
+          role: p.role?.trim() || null,
+          phone: p.phone?.trim() || null,
+          email: p.email?.trim() || null,
         })),
-    })
+    }),
+    [familyName, address, status, notes, people, showAddress, household.family_name],
+  )
+
+  /**
+   * Autosave. Still sends the complete household rather than the one field that
+   * changed: a phone in a parking lot drops requests, and a full body means the
+   * next successful write repairs whatever the last one lost.
+   */
+  const commit = useCallback(
+    (nextPeople?: Person[]) => {
+      dirty.current = false
+      void onCommit(fullBody(nextPeople))
+    },
+    [onCommit, fullBody],
+  )
+
+  /** Blurring an untouched field should not fire a PATCH. */
+  const commitIfDirty = useCallback(() => {
+    if (dirty.current) commit()
+  }, [commit])
+
+  function commitPeople(next: Person[]) {
+    setPeople(next)
+    commit(next)
+  }
+
+  function editPerson(i: number, patch: Partial<Person>) {
+    dirty.current = true
+    setPeople((prev) => prev.map((q, j) => (j === i ? { ...q, ...patch } : q)))
   }
 
   return (
@@ -418,14 +493,15 @@ function HouseholdForm({
         <input
           id="family_name"
           className={field}
-          defaultValue={household.family_name}
+          value={familyName}
+          onChange={(e) => {
+            dirty.current = true
+            setFamilyName(e.target.value)
+          }}
           // Autosave on blur, plus the explicit Save button below.
-          onBlur={(e) => {
-            const v = e.target.value.trim()
-            if (v && v !== household.family_name) {
-              onLocalChange({ family_name: v })
-              onCommit({ family_name: v })
-            }
+          onBlur={() => {
+            if (familyName.trim()) onLocalChange({ family_name: familyName.trim() })
+            commitIfDirty()
           }}
         />
       </div>
@@ -440,8 +516,12 @@ function HouseholdForm({
             id="address"
             className={field}
             placeholder="Street address"
-            defaultValue={household.address ?? ''}
-            onBlur={(e) => onCommit({ address: e.target.value.trim() || null })}
+            value={address}
+            onChange={(e) => {
+              dirty.current = true
+              setAddress(e.target.value)
+            }}
+            onBlur={commitIfDirty}
           />
         </div>
       )}
@@ -453,11 +533,14 @@ function HouseholdForm({
         <select
           id="status"
           className={field}
-          value={household.status}
+          value={status}
           onChange={(e) => {
             const v = e.target.value as HouseholdStatus
+            setStatus(v)
             onLocalChange({ status: v })
-            onCommit({ status: v })
+            // Sent from the event value: `status` is one render behind here.
+            dirty.current = false
+            void onCommit({ ...fullBody(), status: v })
           }}
         >
           {HOUSEHOLD_STATUSES.map((s) => (
@@ -476,8 +559,12 @@ function HouseholdForm({
           id="notes"
           rows={3}
           className={field}
-          defaultValue={household.notes ?? ''}
-          onBlur={(e) => onCommit({ notes: e.target.value.trim() || null })}
+          value={notes}
+          onChange={(e) => {
+            dirty.current = true
+            setNotes(e.target.value)
+          }}
+          onBlur={commitIfDirty}
         />
       </div>
 
@@ -490,22 +577,16 @@ function HouseholdForm({
                 <input
                   className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Full name"
-                  defaultValue={p.full_name}
-                  onBlur={(e) => {
-                    const next = people.slice()
-                    next[i] = { ...p, full_name: e.target.value.trim() }
-                    if (next[i].full_name) commitPeople(next)
-                  }}
+                  value={p.full_name}
+                  onChange={(e) => editPerson(i, { full_name: e.target.value })}
+                  onBlur={commitIfDirty}
                 />
                 <input
                   className={`w-24 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Role"
-                  defaultValue={p.role ?? ''}
-                  onBlur={(e) => {
-                    const next = people.slice()
-                    next[i] = { ...p, role: e.target.value.trim() || null }
-                    commitPeople(next)
-                  }}
+                  value={p.role ?? ''}
+                  onChange={(e) => editPerson(i, { role: e.target.value || null })}
+                  onBlur={commitIfDirty}
                 />
               </div>
               {/* Stacked on a phone: side by side, neither field shows enough of
@@ -516,24 +597,18 @@ function HouseholdForm({
                   placeholder="Phone"
                   type="tel"
                   inputMode="tel"
-                  defaultValue={p.phone ?? ''}
-                  onBlur={(e) => {
-                    const next = people.slice()
-                    next[i] = { ...p, phone: e.target.value.trim() || null }
-                    commitPeople(next)
-                  }}
+                  value={p.phone ?? ''}
+                  onChange={(e) => editPerson(i, { phone: e.target.value || null })}
+                  onBlur={commitIfDirty}
                 />
                 <input
                   className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Email"
                   type="email"
                   inputMode="email"
-                  defaultValue={p.email ?? ''}
-                  onBlur={(e) => {
-                    const next = people.slice()
-                    next[i] = { ...p, email: e.target.value.trim() || null }
-                    commitPeople(next)
-                  }}
+                  value={p.email ?? ''}
+                  onChange={(e) => editPerson(i, { email: e.target.value || null })}
+                  onBlur={commitIfDirty}
                 />
               </div>
               {/* Call and text are the whole point of this record on a phone, so
@@ -595,24 +670,16 @@ function HouseholdForm({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-4">
         <button
-          onClick={() =>
-            onCommit({
-              family_name: household.family_name,
-              status: household.status,
-              people: people
-                .filter((p) => p.full_name.trim())
-                .map((p) => ({
-                  ...(p.id.startsWith('new:') ? {} : { id: p.id }),
-                  full_name: p.full_name,
-                  role: p.role,
-                  phone: p.phone,
-                  email: p.email,
-                })),
-            })
-          }
-          className={`rounded-md bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white ${TAP}`}
+          disabled={saving}
+          // Writes the form exactly as it stands, then hands back to the panel,
+          // which closes the sheet on a phone and leaves the side panel up.
+          onClick={async () => {
+            dirty.current = false
+            if (await onCommit(fullBody())) onSaved()
+          }}
+          className={`rounded-md bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 ${TAP}`}
         >
-          Save
+          {saving ? 'Saving…' : 'Save'}
         </button>
         {canAddHousehold && (
           <button
