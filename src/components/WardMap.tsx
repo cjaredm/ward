@@ -1,7 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Map, { Layer, Source, type MapLayerMouseEvent, type MapRef } from 'react-map-gl/maplibre'
+import Map, {
+  GeolocateControl,
+  Layer,
+  NavigationControl,
+  Source,
+  type MapLayerMouseEvent,
+  type MapRef,
+} from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {
   setWorkerUrl,
@@ -44,6 +51,13 @@ setWorkerUrl('/maplibre-gl-worker.mjs')
 
 const EMPTY: ParcelCollection = { type: 'FeatureCollection', features: [] }
 
+/**
+ * 44px minimum hit area on a phone, back to the compact desktop size at `sm`.
+ * These controls are pressed one-handed while walking, so the original
+ * 28px-tall buttons were a miss more often than not.
+ */
+const TAP = 'min-h-11 py-2 sm:min-h-0 sm:py-1.5'
+
 type Boundary = { type: 'Feature'; geometry: unknown; properties: object; bbox: number[] }
 
 export default function WardMap({ actorName }: { actorName: string }) {
@@ -74,6 +88,29 @@ export default function WardMap({ actorName }: { actorName: string }) {
   const dragPinRef = useRef<{ hid: string; lng: number; lat: number } | null>(null)
   /** Distinguishes a drag from a tap, so releasing a pin does not also open it. */
   const dragMoved = useRef(false)
+  /**
+   * Legend and tools collapse to a single bar on a phone.
+   *
+   * Expanded, the card plus an open detail sheet leaves a strip of map perhaps
+   * two houses tall. Resolved after mount rather than during render so the
+   * server and client markup agree.
+   */
+  const [controlsOpen, setControlsOpen] = useState(true)
+  const [coarse, setCoarse] = useState(false)
+
+  useEffect(() => {
+    const isCoarse = window.matchMedia('(pointer: coarse)').matches
+    setCoarse(isCoarse)
+    if (window.matchMedia('(max-width: 639px)').matches) setControlsOpen(false)
+  }, [])
+
+  // Arming a tool from the collapsed bar has to reveal that tool's own controls.
+  // Keyed on "is a tool armed", not on `draft` itself, so collapsing the card
+  // mid-trace is not undone by the next vertex.
+  const drawing = draft !== null
+  useEffect(() => {
+    if (drawing || selectMode) setControlsOpen(true)
+  }, [drawing, selectMode])
 
   /**
    * Refreshes parcel data only.
@@ -347,12 +384,27 @@ export default function WardMap({ actorName }: { actorName: string }) {
    * save on release.
    */
   const startPinDrag = useCallback(
-    (point: { x: number; y: number }, lngLat: { lng: number; lat: number }): boolean => {
+    (
+      point: { x: number; y: number },
+      lngLat: { lng: number; lat: number },
+      /**
+       * Half-width of the hit box, in px. A fingertip covers far more than the
+       * 8px pin it is aiming at, so touch queries a box and the mouse an exact
+       * point — a box for the mouse would grab pins the user meant to pan past.
+       */
+      slop = 0,
+    ): boolean => {
       if (selectMode || draft || placingPin) return false
       const map = mapRef.current?.getMap()
       // queryRenderedFeatures rather than e.features: this has to be exact, and
       // pointer-down is not one of the events react-map-gl reliably enriches.
-      const hit = map?.queryRenderedFeatures([point.x, point.y], { layers: ['pin-circle'] })?.[0]
+      const at: [number, number] | [[number, number], [number, number]] = slop
+        ? [
+            [point.x - slop, point.y - slop],
+            [point.x + slop, point.y + slop],
+          ]
+        : [point.x, point.y]
+      const hit = map?.queryRenderedFeatures(at, { layers: ['pin-circle'] })?.[0]
       const hid = hit?.properties?.hid
       if (typeof hid !== 'string') return false
 
@@ -564,11 +616,14 @@ export default function WardMap({ actorName }: { actorName: string }) {
         setBox({ x1: s.x, y1: s.y, x2: e.point.x, y2: e.point.y })
         return
       }
+      // Touch browsers synthesise one mousemove on tap, which would leave a
+      // parcel highlighted with nothing under the finger.
+      if (coarse) return
       const props = e.features?.[0]?.properties
       const id = props?.kind === 'pin' ? props.hid : props?.pid
       setHovered(typeof id === 'string' ? id : null)
     },
-    [movePinDrag],
+    [movePinDrag, coarse],
   )
 
   const counts = useMemo(() => {
@@ -601,7 +656,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         onMouseLeave={() => setHovered(null)}
         // Touch mirrors mouse so a pin can be dragged onto its house on a phone,
         // which is where this app is used.
-        onTouchStart={(e) => startPinDrag(e.point, e.lngLat)}
+        onTouchStart={(e) => startPinDrag(e.point, e.lngLat, 14)}
         onTouchMove={(e) => movePinDrag(e.lngLat)}
         onTouchEnd={() => void endPinDrag()}
         onTouchCancel={() => void endPinDrag()}
@@ -616,6 +671,20 @@ export default function WardMap({ actorName }: { actorName: string }) {
         }
         style={{ width: '100%', height: '100%' }}
       >
+        {/*
+          Top-right: the legend owns the top-left and the detail sheet covers the
+          whole bottom of a phone screen, so it is the only corner that is never
+          buried. Geolocation is what makes this usable in the field — standing
+          on a street, "which of these is 1247?" is answered by the blue dot.
+        */}
+        <GeolocateControl
+          position="top-right"
+          positionOptions={{ enableHighAccuracy: true }}
+          trackUserLocation
+          showAccuracyCircle
+        />
+        <NavigationControl position="top-right" showCompass={false} visualizePitch={false} />
+
         <Source id="parcels" type="geojson" data={mapData}>
           <Layer {...fillLayer} />
           <Layer {...outlineLayer} />
@@ -661,20 +730,43 @@ export default function WardMap({ actorName }: { actorName: string }) {
       </Map>
 
       {/* Legend + controls */}
-      <div className="pointer-events-none absolute left-3 top-3 z-10 max-w-[calc(100%-1.5rem)]">
+      <div
+        className="pointer-events-none absolute z-10 w-[min(20rem,calc(100vw-5.5rem))]"
+        style={{
+          left: 'max(0.75rem, env(safe-area-inset-left))',
+          top: 'max(0.75rem, env(safe-area-inset-top))',
+        }}
+      >
         <div className="pointer-events-auto rounded-lg bg-white/95 p-3 text-xs shadow-lg ring-1 ring-black/5 backdrop-blur">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center justify-between gap-2">
             <h1 className="text-sm font-semibold text-neutral-900">Ward Map</h1>
-            <button
-              type="button"
-              onClick={async () => {
-                await fetch('/api/auth/logout', { method: 'POST' })
-                location.href = '/login'
-              }}
-              className="text-xs text-neutral-500 underline underline-offset-2"
-            >
-              Sign out
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  await fetch('/api/auth/logout', { method: 'POST' })
+                  location.href = '/login'
+                }}
+                className="rounded px-1.5 py-1 text-xs text-neutral-500 underline underline-offset-2"
+              >
+                Sign out
+              </button>
+              {/*
+                Collapsed, this card is one line instead of two thirds of a
+                phone screen. Expanded is still the default on a laptop.
+              */}
+              <button
+                type="button"
+                onClick={() => setControlsOpen((v) => !v)}
+                aria-expanded={controlsOpen}
+                aria-label={controlsOpen ? 'Hide legend and tools' : 'Show legend and tools'}
+                className="-mr-1 flex h-8 w-8 items-center justify-center rounded text-neutral-500 hover:bg-neutral-100"
+              >
+                <span aria-hidden className={controlsOpen ? '' : 'rotate-180'}>
+                  ▲
+                </span>
+              </button>
+            </div>
           </div>
 
           <p className="mt-1 text-neutral-500">
@@ -683,121 +775,141 @@ export default function WardMap({ actorName }: { actorName: string }) {
               : `${counts.homes} homes · ${counts.withHouseholds} with a household`}
           </p>
 
-          <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-            {Object.entries(STATUS_LABELS).map(([key, label]) => (
-              <li key={key} className="flex items-center gap-1.5 text-neutral-700">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                  style={{ background: STATUS_COLORS[key as keyof typeof STATUS_COLORS] }}
-                />
-                {label}
-              </li>
-            ))}
-            <li className="flex items-center gap-1.5 text-neutral-700">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                style={{ background: NO_HOUSEHOLD_COLOR }}
-              />
-              No household
-            </li>
-            <li className="flex items-center gap-1.5 text-neutral-700">
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                style={{ background: BUSINESS_COLOR }}
-              />
-              Business ({counts.businesses})
-            </li>
-          </ul>
+          {controlsOpen && (
+            <>
+              <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                  <li key={key} className="flex items-center gap-1.5 text-neutral-700">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                      style={{ background: STATUS_COLORS[key as keyof typeof STATUS_COLORS] }}
+                    />
+                    {label}
+                  </li>
+                ))}
+                <li className="flex items-center gap-1.5 text-neutral-700">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ background: NO_HOUSEHOLD_COLOR }}
+                  />
+                  No household
+                </li>
+                <li className="flex items-center gap-1.5 text-neutral-700">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ background: BUSINESS_COLOR }}
+                  />
+                  Business ({counts.businesses})
+                </li>
+              </ul>
 
-          <div className="mt-2 space-y-2 border-t border-neutral-200 pt-2">
-            <label className="flex items-center gap-2 text-neutral-700">
-              <input
-                type="checkbox"
-                checked={showCommonAreas}
-                onChange={(e) => setShowCommonAreas(e.target.checked)}
-              />
-              <span
-                className="h-2.5 w-2.5 shrink-0 rounded-sm"
-                style={{ background: COMMON_AREA_COLOR }}
-              />
-              Common areas ({counts.commonAreas})
-            </label>
+              <div className="mt-2 space-y-2 border-t border-neutral-200 pt-2">
+                <label className="flex items-center gap-2 py-1.5 text-neutral-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={showCommonAreas}
+                    onChange={(e) => setShowCommonAreas(e.target.checked)}
+                  />
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ background: COMMON_AREA_COLOR }}
+                  />
+                  Common areas ({counts.commonAreas})
+                </label>
 
-            {draft ? (
-              <div className="space-y-1.5">
-                <p className="text-[11px] text-neutral-600">
-                  Click to add corners · {draft.length} point{draft.length === 1 ? '' : 's'}
-                  {draft.length < 3 ? ` · ${3 - draft.length} more needed` : ''}
-                </p>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={saveDraft}
-                    disabled={draft.length < 3 || busy}
-                    className="flex-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-40"
-                  >
-                    {busy ? 'Saving…' : 'Save parcel'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDraft((d) => (d && d.length > 1 ? d.slice(0, -1) : null))}
-                    className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-800"
-                  >
-                    Undo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDraft(null)}
-                    className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs text-neutral-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                {draft ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-neutral-600">
+                      {coarse ? 'Tap to add corners' : 'Click to add corners'} · {draft.length} point
+                      {draft.length === 1 ? '' : 's'}
+                      {draft.length < 3 ? ` · ${3 - draft.length} more needed` : ''}
+                    </p>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={saveDraft}
+                        disabled={draft.length < 3 || busy}
+                        className={`flex-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white disabled:opacity-40 ${TAP}`}
+                      >
+                        {busy ? 'Saving…' : 'Save parcel'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraft((d) => (d && d.length > 1 ? d.slice(0, -1) : null))}
+                        className={`rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 ${TAP}`}
+                      >
+                        Undo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraft(null)}
+                        className={`rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 ${TAP}`}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlacingPin(false)
+                        setSelected(null)
+                        setDraft([])
+                      }}
+                      className={`w-full rounded-md border border-neutral-300 px-2.5 text-xs font-medium text-neutral-800 ${TAP}`}
+                    >
+                      Draw a parcel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPlacingPin(false)
+                        setSelected(null)
+                        setSelectMode(true)
+                      }}
+                      className={`w-full rounded-md border border-neutral-300 px-2.5 text-xs font-medium text-neutral-800 ${TAP}`}
+                    >
+                      Select many parcels
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPlacingPin((v) => !v)}
+                      aria-pressed={placingPin}
+                      className={`w-full rounded-md px-2.5 text-xs font-medium ${TAP} ${
+                        placingPin
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-neutral-300 text-neutral-800'
+                      }`}
+                    >
+                      {placingPin
+                        ? coarse
+                          ? 'Tap the map to place it'
+                          : 'Click the map to place it — Esc to cancel'
+                        : 'Drop a pin instead'}
+                    </button>
+                    {/* Esc is the desktop way out; a phone needs a visible one. */}
+                    {placingPin && coarse && (
+                      <button
+                        type="button"
+                        onClick={() => setPlacingPin(false)}
+                        className={`w-full rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 ${TAP}`}
+                      >
+                        Cancel
+                      </button>
+                    )}
+                  </>
+                )}
+                {counts.pins > 0 && (
+                  <p className="text-[11px] text-neutral-500">
+                    {counts.pins} home{counts.pins === 1 ? '' : 's'} pinned without a parcel
+                  </p>
+                )}
               </div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPlacingPin(false)
-                    setSelected(null)
-                    setDraft([])
-                  }}
-                  className="w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-800"
-                >
-                  Draw a parcel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPlacingPin(false)
-                    setSelected(null)
-                    setSelectMode(true)
-                  }}
-                  className="w-full rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-800"
-                >
-                  Select many parcels
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPlacingPin((v) => !v)}
-                  aria-pressed={placingPin}
-                  className={`w-full rounded-md px-2.5 py-1.5 text-xs font-medium ${
-                    placingPin
-                      ? 'bg-blue-600 text-white'
-                      : 'border border-neutral-300 text-neutral-800'
-                  }`}
-                >
-                  {placingPin ? 'Click the map to place it — Esc to cancel' : 'Drop a pin instead'}
-                </button>
-              </>
-            )}
-            {counts.pins > 0 && (
-              <p className="text-[11px] text-neutral-500">
-                {counts.pins} home{counts.pins === 1 ? '' : 's'} pinned without a parcel
-              </p>
-            )}
-          </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -816,14 +928,18 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
       {/* Bulk action bar */}
       {selectMode && (
-        <div className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur sm:right-[26rem] sm:inset-x-auto sm:left-0">
+        <div
+          className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur sm:right-[26rem] sm:inset-x-auto sm:left-0"
+          style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}
+        >
           <span className="font-medium text-neutral-900">
             {picked.length} parcel{picked.length === 1 ? '' : 's'} selected
           </span>
-          <span className="hidden text-neutral-500 sm:inline">
-            Click to toggle · Shift-drag to box-select
+          {/* Shift-drag has no touch equivalent, so a phone gets the tap-only rule. */}
+          <span className="text-neutral-500">
+            {coarse ? 'Tap parcels to add or remove' : 'Click to toggle · Shift-drag to box-select'}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <select
               value=""
               disabled={picked.length === 0 || busy}
@@ -832,7 +948,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
                 e.currentTarget.value = ''
                 if (v) void applyBulk(v as ParcelUse)
               }}
-              className="rounded-md border border-neutral-300 px-2 py-1.5 text-xs disabled:opacity-40"
+              className={`rounded-md border border-neutral-300 px-2 text-xs disabled:opacity-40 ${TAP}`}
             >
               <option value="">Set type to…</option>
               {PARCEL_USES.map((u) => (
@@ -846,7 +962,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
               onClick={undoBulk}
               disabled={busy}
               title="Restore the parcels changed by the last bulk update"
-              className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-neutral-800 disabled:opacity-40"
+              className={`rounded-md border border-neutral-300 px-2.5 text-neutral-800 disabled:opacity-40 ${TAP}`}
             >
               Undo last bulk
             </button>
@@ -854,7 +970,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
               type="button"
               onClick={() => setPicked([])}
               disabled={picked.length === 0}
-              className="rounded-md border border-neutral-300 px-2.5 py-1.5 text-neutral-800 disabled:opacity-40"
+              className={`rounded-md border border-neutral-300 px-2.5 text-neutral-800 disabled:opacity-40 ${TAP}`}
             >
               Clear
             </button>
@@ -864,7 +980,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
                 setSelectMode(false)
                 setPicked([])
               }}
-              className="rounded-md bg-neutral-900 px-2.5 py-1.5 font-medium text-white"
+              className={`rounded-md bg-neutral-900 px-2.5 font-medium text-white ${TAP}`}
             >
               Done
             </button>
@@ -873,7 +989,10 @@ export default function WardMap({ actorName }: { actorName: string }) {
       )}
 
       {error && (
-        <div className="absolute bottom-3 left-3 z-30 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg">
+        <div
+          className="absolute inset-x-3 z-30 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg sm:inset-x-auto sm:left-3"
+          style={{ bottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        >
           {error}
         </div>
       )}

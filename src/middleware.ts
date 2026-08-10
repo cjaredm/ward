@@ -31,7 +31,11 @@ export const config = {
      *                                  a redirect here answers a module-worker
      *                                  request with HTML and the map silently
      *                                  fails to render. Contains no ward data.
+     *   manifest.webmanifest           the browser fetches it without cookies, so
+     *                                  gating it answers with the /login HTML and
+     *                                  Add to Home Screen breaks. Name and colours
+     *                                  only — no ward data.
      */
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|maplibre-gl-).*)',
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|maplibre-gl-).*)',
   ],
 }

@@ -27,9 +27,12 @@ function relativeTime(ts: number): string {
   return `${Math.floor(mins / 60)}h ago`
 }
 
+/** 16px on a phone: anything smaller is hard to read at arm's length outdoors. */
 const field =
-  'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900'
+  'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-900 sm:py-2 sm:text-sm'
 const labelCls = 'block text-xs font-medium text-neutral-700'
+/** 44px minimum hit area on touch, compact again at `sm`. */
+const TAP = 'min-h-11 sm:min-h-0'
 
 export default function ParcelPanel({
   target,
@@ -188,11 +191,16 @@ export default function ParcelPanel({
 
   return (
     <aside
-      className="absolute inset-x-0 bottom-0 z-20 flex max-h-[70dvh] flex-col rounded-t-2xl bg-white shadow-2xl ring-1 ring-black/10 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[26rem] sm:max-h-none sm:rounded-none sm:rounded-l-2xl"
+      className="absolute inset-x-0 bottom-0 z-20 flex max-h-[75dvh] flex-col rounded-t-2xl bg-white shadow-2xl ring-1 ring-black/10 sm:inset-y-0 sm:left-auto sm:right-0 sm:w-[26rem] sm:max-h-none sm:rounded-none sm:rounded-l-2xl"
       aria-label="Parcel details"
     >
       {/* County data — read-only, visually distinct from everything editable below. */}
-      <header className="shrink-0 border-b border-neutral-200 bg-neutral-100 px-4 py-3">
+      <header className="shrink-0 rounded-t-2xl border-b border-neutral-200 bg-neutral-100 px-4 pb-3 pt-2 sm:rounded-none sm:pt-3">
+        {/* Reads as a sheet you can dismiss, which is what the ✕ does. */}
+        <div
+          aria-hidden
+          className="mx-auto mb-2 h-1 w-10 rounded-full bg-neutral-300 sm:hidden"
+        />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-neutral-900">{headerTitle}</p>
@@ -203,7 +211,7 @@ export default function ParcelPanel({
           <button
             onClick={onClose}
             aria-label="Close"
-            className="-mr-1 -mt-1 rounded p-1.5 text-neutral-500 hover:bg-neutral-200"
+            className="-mr-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded text-neutral-500 hover:bg-neutral-200 sm:h-8 sm:w-8"
           >
             ✕
           </button>
@@ -230,7 +238,9 @@ export default function ParcelPanel({
         )}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* overscroll-contain: without it, flicking past the end of the form keeps
+          going and pans the map underneath. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {/* What the property is used for. Ward-set, survives the monthly import. */}
         {target.kind === 'parcel' && parcel && (
           <section className="border-b border-neutral-200 px-4 py-3">
@@ -266,7 +276,7 @@ export default function ParcelPanel({
                   onChanged()
                   onClose()
                 }}
-                className="mt-2 text-xs text-red-700 underline underline-offset-2"
+                className={`mt-2 px-1 text-xs text-red-700 underline underline-offset-2 ${TAP}`}
               >
                 Delete this drawn parcel
               </button>
@@ -303,7 +313,7 @@ export default function ParcelPanel({
             {!isBusiness && (
               <button
                 onClick={addHousehold}
-                className="mt-3 rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
+                className={`mt-3 rounded-md bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white ${TAP}`}
               >
                 Add household
               </button>
@@ -312,12 +322,12 @@ export default function ParcelPanel({
         )}
 
         {detail && detail.households.length > 1 && (
-          <div className="flex gap-1 overflow-x-auto border-b border-neutral-200 px-2 py-2">
+          <div className="flex gap-1 overflow-x-auto overscroll-x-contain border-b border-neutral-200 px-2 py-2">
             {detail.households.map((h, i) => (
               <button
                 key={h.id}
                 onClick={() => setActiveIdx(i)}
-                className={`shrink-0 rounded-md px-2.5 py-1 text-xs ${
+                className={`shrink-0 rounded-md px-3 py-2 text-xs sm:py-1 ${
                   i === activeIdx ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-700'
                 }`}
               >
@@ -343,7 +353,10 @@ export default function ParcelPanel({
         )}
       </div>
 
-      <footer className="shrink-0 border-t border-neutral-200 px-4 py-2 text-xs">
+      <footer
+        className="shrink-0 border-t border-neutral-200 px-4 py-2 text-xs"
+        style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+      >
         {save.status === 'error' ? (
           <span className="text-red-600">{save.message}</span>
         ) : save.status === 'saving' ? (
@@ -475,7 +488,7 @@ function HouseholdForm({
             <li key={p.id} className="rounded-md border border-neutral-200 p-2.5">
               <div className="flex gap-2">
                 <input
-                  className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Full name"
                   defaultValue={p.full_name}
                   onBlur={(e) => {
@@ -485,7 +498,7 @@ function HouseholdForm({
                   }}
                 />
                 <input
-                  className="w-24 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  className={`w-24 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Role"
                   defaultValue={p.role ?? ''}
                   onBlur={(e) => {
@@ -495,9 +508,11 @@ function HouseholdForm({
                   }}
                 />
               </div>
-              <div className="mt-2 flex gap-2">
+              {/* Stacked on a phone: side by side, neither field shows enough of
+                  a phone number or an email to check it. */}
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
                 <input
-                  className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Phone"
                   type="tel"
                   inputMode="tel"
@@ -509,7 +524,7 @@ function HouseholdForm({
                   }}
                 />
                 <input
-                  className="min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
                   placeholder="Email"
                   type="email"
                   inputMode="email"
@@ -521,23 +536,36 @@ function HouseholdForm({
                   }}
                 />
               </div>
-              <div className="mt-2 flex items-center gap-3 text-xs">
+              {/* Call and text are the whole point of this record on a phone, so
+                  they get real buttons rather than inline links. */}
+              <div className="mt-2 flex items-center gap-2 text-xs">
                 {p.phone && (
-                  <a href={`tel:${p.phone}`} className="text-blue-700 underline underline-offset-2">
-                    Call
-                  </a>
+                  <>
+                    <a
+                      href={`tel:${p.phone}`}
+                      className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700"
+                    >
+                      Call
+                    </a>
+                    <a
+                      href={`sms:${p.phone}`}
+                      className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700 sm:hidden"
+                    >
+                      Text
+                    </a>
+                  </>
                 )}
                 {p.email && (
                   <a
                     href={`mailto:${p.email}`}
-                    className="text-blue-700 underline underline-offset-2"
+                    className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700"
                   >
                     Email
                   </a>
                 )}
                 <button
                   onClick={() => commitPeople(people.filter((_, j) => j !== i))}
-                  className="ml-auto text-neutral-500 underline underline-offset-2"
+                  className="ml-auto min-h-9 px-1 text-neutral-500 underline underline-offset-2"
                 >
                   Remove
                 </button>
@@ -559,13 +587,13 @@ function HouseholdForm({
               },
             ])
           }
-          className="mt-2 rounded-md border border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-800"
+          className={`mt-2 rounded-md border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 ${TAP}`}
         >
           Add person
         </button>
       </section>
 
-      <div className="flex items-center gap-2 border-t border-neutral-200 pt-4">
+      <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-4">
         <button
           onClick={() =>
             onCommit({
@@ -582,21 +610,21 @@ function HouseholdForm({
                 })),
             })
           }
-          className="rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white"
+          className={`rounded-md bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white ${TAP}`}
         >
           Save
         </button>
         {canAddHousehold && (
           <button
             onClick={onAddHousehold}
-            className="rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-800"
+            className={`rounded-md border border-neutral-300 px-3 py-2.5 text-sm text-neutral-800 ${TAP}`}
           >
             Add household
           </button>
         )}
         <button
           onClick={onDelete}
-          className="ml-auto rounded-md px-3 py-2 text-sm text-red-700 underline underline-offset-2"
+          className={`ml-auto rounded-md px-3 py-2.5 text-sm text-red-700 underline underline-offset-2 ${TAP}`}
         >
           Delete this household
         </button>
