@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { currentUser } from '@/lib/auth'
-import { MIN_PASSWORD_LENGTH } from '@/lib/users'
+import { MIN_PASSWORD_LENGTH, PASSWORD_RULES } from '@/lib/users'
 import ChangePasswordForm from './ChangePasswordForm'
 
 /**
@@ -22,7 +22,11 @@ export default async function ChangePasswordPage() {
             ? 'Your account was set up with a temporary password. Pick your own to continue.'
             : `Signed in as ${user.name}.`}
         </p>
-        <ChangePasswordForm minLength={MIN_PASSWORD_LENGTH} forced={user.must_change_password} />
+        <ChangePasswordForm
+          minLength={MIN_PASSWORD_LENGTH}
+          rules={PASSWORD_RULES}
+          forced={user.must_change_password}
+        />
       </div>
     </main>
   )

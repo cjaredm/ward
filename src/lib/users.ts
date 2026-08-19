@@ -5,11 +5,38 @@ import { sql } from './db'
 export const BCRYPT_ROUNDS = 12
 
 /**
- * 12 characters, matching what the shared-password script always demanded. This
- * is still the only credential guarding member addresses and phone numbers, it
- * is just per-person now.
+ * Rules for a password somebody chooses and has to remember: 8 characters with
+ * upper case, lower case and one symbol. Short enough to be memorable, mixed
+ * enough that the obvious guesses do not fit.
+ *
+ * Temporary passwords an admin hands out are not bound by this — they are
+ * random and never memorized, so they answer to TEMP_PASSWORD_MIN_LENGTH.
  */
-export const MIN_PASSWORD_LENGTH = 12
+export const MIN_PASSWORD_LENGTH = 8
+
+/**
+ * Length floor for an admin-set temporary password, independent of the rules
+ * above. The word passphrase in lib/temp-password always clears it comfortably;
+ * this is here so nothing else can post a short one to the admin routes.
+ */
+export const TEMP_PASSWORD_MIN_LENGTH = 16
+
+export const PASSWORD_RULES =
+  'At least 8 characters, with an upper case letter, a lower case letter and one symbol.'
+
+/**
+ * Returns the first unmet rule, or null when the password is acceptable. Used
+ * by the change-password route so the message says what is actually missing.
+ */
+export function passwordProblem(password: string): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    return `Use at least ${MIN_PASSWORD_LENGTH} characters.`
+  }
+  if (!/[a-z]/.test(password)) return 'Include a lower case letter.'
+  if (!/[A-Z]/.test(password)) return 'Include an upper case letter.'
+  if (!/[^A-Za-z0-9]/.test(password)) return 'Include one symbol, such as ! ? # or $.'
+  return null
+}
 
 export type User = {
   id: string

@@ -9,9 +9,11 @@ const INPUT =
 
 export default function ChangePasswordForm({
   minLength,
+  rules,
   forced,
 }: {
   minLength: number
+  rules: string
   forced: boolean
 }) {
   const router = useRouter()
@@ -33,7 +35,9 @@ export default function ChangePasswordForm({
       const res = await fetch('/api/auth/password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        // The forced first change omits it entirely — signing in with the
+        // temporary password is the proof, so it is not asked for twice.
+        body: JSON.stringify(forced ? { newPassword } : { currentPassword, newPassword }),
       })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null
@@ -51,20 +55,22 @@ export default function ChangePasswordForm({
 
   return (
     <form onSubmit={submit} className="mt-6 space-y-4">
-      <div>
-        <label htmlFor="current" className="block text-sm font-medium text-neutral-800">
-          {forced ? 'Temporary password' : 'Current password'}
-        </label>
-        <input
-          id="current"
-          type="password"
-          value={currentPassword}
-          onChange={(e) => setCurrent(e.target.value)}
-          autoComplete="current-password"
-          required
-          className={INPUT}
-        />
-      </div>
+      {!forced && (
+        <div>
+          <label htmlFor="current" className="block text-sm font-medium text-neutral-800">
+            Current password
+          </label>
+          <input
+            id="current"
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+            required
+            className={INPUT}
+          />
+        </div>
+      )}
 
       <div>
         <label htmlFor="next" className="block text-sm font-medium text-neutral-800">
@@ -81,8 +87,7 @@ export default function ChangePasswordForm({
           className={INPUT}
         />
         <p className="mt-1 text-xs text-neutral-500">
-          At least {minLength} characters. This is the only thing guarding ward addresses and phone
-          numbers.
+          {rules} This is the only thing guarding ward addresses and phone numbers.
         </p>
       </div>
 

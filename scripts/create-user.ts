@@ -13,17 +13,11 @@
  */
 import { randomInt } from 'node:crypto'
 import bcrypt from 'bcryptjs'
+import { generateTempPassword } from '../src/lib/temp-password'
 import { withClient } from './lib/pg'
 import { run } from './lib/run'
 
 const BCRYPT_ROUNDS = 12
-const PASSWORD_LENGTH = 16
-// No 0/O/1/l/I — this gets read aloud or retyped.
-const ALPHABET = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-
-function generatePassword(): string {
-  return Array.from({ length: PASSWORD_LENGTH }, () => ALPHABET[randomInt(ALPHABET.length)]).join('')
-}
 
 run(async () => {
   const args = process.argv.slice(2)
@@ -51,7 +45,7 @@ run(async () => {
     )
   }
 
-  const password = generatePassword()
+  const password = generateTempPassword((bound) => randomInt(bound))
   const hash = await bcrypt.hash(password, BCRYPT_ROUNDS)
 
   await withClient(async (client) => {

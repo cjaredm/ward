@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import { currentUser } from '@/lib/auth'
 import { SECTIONS, visibleSections } from '@/lib/permissions'
-import { listUsers, MIN_PASSWORD_LENGTH } from '@/lib/users'
+import { listUsers } from '@/lib/users'
 import TopNav from '@/components/TopNav'
 import UsersAdmin from './UsersAdmin'
 
@@ -33,7 +33,6 @@ export default async function UsersPage() {
         <UsersAdmin
           initialUsers={await listUsers()}
           sections={SECTIONS.map((s) => ({ key: s.key, label: s.label }))}
-          minPasswordLength={MIN_PASSWORD_LENGTH}
           currentUserId={user.id}
         />
       </div>

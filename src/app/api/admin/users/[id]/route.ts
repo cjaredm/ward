@@ -6,9 +6,9 @@ import { SECTION_KEYS } from '@/lib/permissions'
 import {
   findUserById,
   isLastActiveAdmin,
-  MIN_PASSWORD_LENGTH,
   normalizeEmail,
   resetPassword,
+  TEMP_PASSWORD_MIN_LENGTH,
   updateUser,
 } from '@/lib/users'
 
@@ -21,7 +21,7 @@ const Body = z.object({
   permissions: z.array(z.enum(SECTION_KEYS as [string, ...string[]])).optional(),
   is_active: z.boolean().optional(),
   /** Present only on an admin-initiated reset; forces a change at next sign-in. */
-  password: z.string().min(MIN_PASSWORD_LENGTH).max(200).optional(),
+  password: z.string().min(TEMP_PASSWORD_MIN_LENGTH).max(200).optional(),
 })
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

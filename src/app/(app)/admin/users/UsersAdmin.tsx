@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { generateTempPassword } from '@/lib/temp-password'
 
 type User = {
   id: string
@@ -23,12 +24,20 @@ const INPUT =
  * A temporary password the admin reads out or pastes into a message, never one
  * anybody has to keep. Generated in the browser so it is shown exactly once and
  * only the bcrypt hash of it ever reaches the server.
+ *
+ * Rejection sampling rather than `% bound`: the top of the 32-bit range does not
+ * divide evenly by 256 or 100, and modulo alone would quietly weight the low
+ * words and low digits.
  */
-function generatePassword(length: number): string {
-  // No 0/O/1/l/I: this gets read aloud or retyped from a screenshot.
-  const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = crypto.getRandomValues(new Uint32Array(Math.max(length, 16)))
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
+function randomInt(bound: number): number {
+  const limit = Math.floor(0x1_0000_0000 / bound) * bound
+  const buf = new Uint32Array(1)
+  let n: number
+  do {
+    crypto.getRandomValues(buf)
+    n = buf[0]
+  } while (n >= limit)
+  return n % bound
 }
 
 function relative(iso: string | null): string {
@@ -43,12 +52,10 @@ function relative(iso: string | null): string {
 export default function UsersAdmin({
   initialUsers,
   sections,
-  minPasswordLength,
   currentUserId,
 }: {
   initialUsers: User[]
   sections: Section[]
-  minPasswordLength: number
   currentUserId: string
 }) {
   const [users, setUsers] = useState(initialUsers)
@@ -88,7 +95,7 @@ export default function UsersAdmin({
 
   async function addUser(e: React.FormEvent) {
     e.preventDefault()
-    const password = generatePassword(minPasswordLength + 4)
+    const password = generateTempPassword(randomInt)
     const user = await send('/api/admin/users', { ...draft, password })
     if (!user) return
     setUsers((prev) => [...prev, user])
@@ -104,7 +111,7 @@ export default function UsersAdmin({
   }
 
   async function resetPassword(id: string) {
-    const password = generatePassword(minPasswordLength + 4)
+    const password = generateTempPassword(randomInt)
     const user = await send(`/api/admin/users/${id}`, { password })
     if (!user) return
     setUsers((prev) => prev.map((u) => (u.id === id ? user : u)))
@@ -256,7 +263,7 @@ export default function UsersAdmin({
               {reveal[user.id] && (
                 <div className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   <p className="font-medium">Temporary password — shown once</p>
-                  <code className="mt-1 block font-mono text-base break-all">
+                  <code className="mt-1 block font-mono text-base break-words">
                     {reveal[user.id]}
                   </code>
                   <button

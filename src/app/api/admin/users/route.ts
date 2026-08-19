@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { authErrorResponse, requireAdmin } from '@/lib/auth'
 import { SECTION_KEYS } from '@/lib/permissions'
-import { createUser, listUsers, MIN_PASSWORD_LENGTH, normalizeEmail } from '@/lib/users'
+import { createUser, listUsers, normalizeEmail, TEMP_PASSWORD_MIN_LENGTH } from '@/lib/users'
 
 export const runtime = 'nodejs'
 
@@ -11,8 +11,9 @@ const Body = z.object({
   email: z.string().trim().email().max(200),
   name: z.string().trim().min(2).max(60),
   // The admin hands this to the person out of band; they are forced to replace
-  // it at first sign-in, so it never needs to be memorable.
-  password: z.string().min(MIN_PASSWORD_LENGTH).max(200),
+  // it at first sign-in, so it never needs to be memorable — which is why it is
+  // held to the generated length rather than to the shorter human rules.
+  password: z.string().min(TEMP_PASSWORD_MIN_LENGTH).max(200),
   is_admin: z.boolean().default(false),
   permissions: z.array(z.enum(SECTION_KEYS as [string, ...string[]])).default([]),
 })
