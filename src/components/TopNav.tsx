@@ -107,6 +107,11 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
             role="menuitem"
             onClick={async () => {
               await fetch('/api/auth/logout', { method: 'POST' })
+              // The service worker caches the app shell only, never a page or an
+              // API response — but this is a phone that gets handed around, so
+              // sign-out empties Cache Storage rather than trusting that rule to
+              // hold for every asset added later.
+              navigator.serviceWorker?.controller?.postMessage('clear-caches')
               // A hard navigation, not router.push: it drops every cached
               // server payload the signed-in session rendered.
               location.href = '/login'

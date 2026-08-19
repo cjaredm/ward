@@ -6,6 +6,7 @@
     "dev": "node scripts/copy-maplibre-worker.mjs && next dev -p 3001",
     "build": "node scripts/copy-maplibre-worker.mjs && tsx scripts/sync-boundary.ts && next build",
     "copy:worker": "node scripts/copy-maplibre-worker.mjs",
+    "icons": "node scripts/generate-icons.mjs",
     "start": "next start",
     "lint": "eslint",
     "migrate": "tsx scripts/migrate.ts",

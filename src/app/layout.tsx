@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import './globals.css'
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 
@@ -11,6 +12,15 @@ export const metadata: Metadata = {
   // Added to the home screen it runs without Safari's chrome, which is most of
   // the screen back on a phone.
   appleWebApp: { capable: true, title: 'Ward Map', statusBarStyle: 'default' },
+  // iOS never reads the manifest's icons. Without this link it screenshots the
+  // page for the home screen tile.
+  icons: {
+    icon: [
+      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
 }
 
 export const viewport: Viewport = {
@@ -27,7 +37,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} antialiased`}>{children}</body>
+      <body className={`${geistSans.variable} antialiased`}>
+        {children}
+        <ServiceWorkerRegistration />
+      </body>
     </html>
   )
 }

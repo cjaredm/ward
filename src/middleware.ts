@@ -35,7 +35,14 @@ export const config = {
      *                                  gating it answers with the /login HTML and
      *                                  Add to Home Screen breaks. Name and colours
      *                                  only — no ward data.
+     *   sw.js, offline.html, icons/    the PWA shell. The service worker is
+     *                                  fetched and precaches these on install and
+     *                                  on every update check; a session that has
+     *                                  expired in between would otherwise answer
+     *                                  with /login HTML, and the worker would
+     *                                  cache that as the offline page. All three
+     *                                  are static and contain no ward data.
      */
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|maplibre-gl-).*)',
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|maplibre-gl-|sw.js|offline.html|icons/).*)',
   ],
 }
