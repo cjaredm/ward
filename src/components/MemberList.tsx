@@ -46,8 +46,16 @@ export default function MemberList({
   const [households, setHouseholds] = useState(initial)
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<HouseholdStatus | 'all'>('all')
-  /** The household whose editor is open. One at a time: this is a list, not a form. */
-  const [openId, setOpenId] = useState<string | null>(null)
+  /**
+   * The row whose editor is open, by row key. One at a time: this is a list, not
+   * a form.
+   *
+   * Keyed by row, not by household: a row is one person, so a household id here
+   * matched every person in that family at once and mounted a HouseholdForm
+   * under each of them — two live copies of one record, each with its own Save,
+   * which is exactly what the note on the row button says must not happen.
+   */
+  const [openRow, setOpenRow] = useState<string | null>(null)
   const [save, setSave] = useState<SaveState>({ status: 'idle' })
 
   const rows = useMemo<Row[]>(
@@ -139,7 +147,7 @@ export default function MemberList({
       return
     }
     setHouseholds((prev) => prev.filter((x) => x.id !== h.id))
-    setOpenId(null)
+    setOpenRow(null)
     setSave({ status: 'idle' })
   }
 
@@ -186,7 +194,7 @@ export default function MemberList({
         <ul className="divide-y divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white">
           {visible.map((r) => {
             const h = r.household
-            const open = openId === h.id
+            const open = openRow === r.key
             const address = addressOf(h)
             return (
               <li key={r.key}>
@@ -195,7 +203,7 @@ export default function MemberList({
                   // both rows edit one household, and two live copies of one
                   // record would race each other's autosave.
                   onClick={() => {
-                    setOpenId(open ? null : h.id)
+                    setOpenRow(open ? null : r.key)
                     setSave({ status: 'idle' })
                   }}
                   aria-expanded={open}
@@ -262,7 +270,7 @@ export default function MemberList({
                       saving={save.status === 'saving'}
                       onLocalChange={(fields) => updateLocal(h.id, fields)}
                       onCommit={(body) => patch(h.id, body)}
-                      onSaved={() => setOpenId(null)}
+                      onSaved={() => setOpenRow(null)}
                       onDelete={() => void remove(h)}
                     />
                     <p className="px-4 pb-3 text-xs">
