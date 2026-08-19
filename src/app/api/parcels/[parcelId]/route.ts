@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { requireSession } from '@/lib/auth'
+import { authErrorResponse, requireSession } from '@/lib/auth'
 import { PARCEL_USES, type ParcelDetail } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -14,8 +14,8 @@ export const dynamic = 'force-dynamic'
 export async function GET(_req: Request, ctx: { params: Promise<{ parcelId: string }> }) {
   try {
     await requireSession()
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const { parcelId } = await ctx.params
@@ -63,8 +63,19 @@ export async function GET(_req: Request, ctx: { params: Promise<{ parcelId: stri
             'people', coalesce((
               SELECT jsonb_agg(
                 jsonb_build_object(
-                  'id', pe.id, 'full_name', pe.full_name, 'role', pe.role,
-                  'phone', pe.phone, 'email', pe.email, 'sort_order', pe.sort_order
+                  'id', pe.id, 'full_name', pe.full_name, 'photo_url', pe.photo_url,
+                  'callings', coalesce((
+                    SELECT jsonb_agg(jsonb_build_object(
+                             'id', c.id, 'org_key', c.org_key, 'name', c.name,
+                             'unit', c.unit, 'is_custom', c.is_custom
+                           ) ORDER BY c.sort)
+                    FROM callings c WHERE c.person_id = pe.id AND c.released_at IS NULL
+                  ), '[]'::jsonb),
+                  'orgs', coalesce((
+                    SELECT jsonb_agg(DISTINCT po.org_key ORDER BY po.org_key)
+                    FROM person_orgs po WHERE po.person_id = pe.id
+                  ), '[]'::jsonb),
+                  'sort_order', pe.sort_order
                 ) ORDER BY pe.sort_order, pe.full_name
               ) FROM people pe WHERE pe.household_id = h.id
             ), '[]'::jsonb)
@@ -107,8 +118,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ parcelId:
   let actor: string
   try {
     actor = (await requireSession()).name
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const { parcelId } = await ctx.params
@@ -147,7 +158,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ parcelId:
  *
  * County parcels are not deletable here — they are owned by the monthly import
  * and would reappear on the next run anyway. A drawn parcel with households on
- * it is refused rather than cascaded: those rows hold names and phone numbers,
+ * it is refused rather than cascaded: those rows hold members' names and notes,
  * and removing them should be a deliberate act, not a side effect of tidying up
  * an outline.
  */
@@ -155,8 +166,8 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ parcelI
   let actor: string
   try {
     actor = (await requireSession()).name
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const { parcelId } = await ctx.params

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
 import Map, {
   GeolocateControl,
   Layer,
@@ -40,10 +41,14 @@ import {
   PARCEL_USES,
   STATUS_LABELS,
   USE_LABELS,
+  type MapGroup,
+  type MapGroupMember,
   type ParcelCollection,
   type ParcelFeature,
   type ParcelUse,
+  type PinFeature,
 } from '@/lib/types'
+import { orgInk, orgTint } from '@/lib/orgs'
 import ParcelPanel, { type PanelTarget } from './ParcelPanel'
 
 /**
@@ -83,6 +88,15 @@ const TAP = 'min-h-11 py-2 sm:min-h-0 sm:py-1.5'
 
 type Boundary = { type: 'Feature'; geometry: unknown; properties: object; bbox: number[] }
 
+/** One home in the highlighted group, as the member list beside the map shows it. */
+type GroupHome = {
+  householdId: string
+  familyName: string
+  /** What clicking the row opens, or null when this home is not on the map at all. */
+  target: PanelTarget | null
+  people: { personId: string; name: string; callings: string[]; via: MapGroupMember['via'] }[]
+}
+
 export default function WardMap({ actorName }: { actorName: string }) {
   const mapRef = useRef<MapRef>(null)
   const [parcels, setParcels] = useState<ParcelCollection>(EMPTY)
@@ -112,6 +126,22 @@ export default function WardMap({ actorName }: { actorName: string }) {
   const dragPinRef = useRef<{ hid: string; lng: number; lat: number } | null>(null)
   /** Distinguishes a drag from a tap, so releasing a pin does not also open it. */
   const dragMoved = useRef(false)
+  /** Where the pointer last was, in screen px — what the drop target is read from. */
+  const dragPoint = useRef<{ x: number; y: number } | null>(null)
+  /**
+   * A pin dropped on top of a parcel, waiting on the "attach this family to
+   * this property?" answer. The household is not written until it comes back,
+   * and the pin keeps hanging at the drop point until then.
+   */
+  const [drop, setDrop] = useState<{
+    hid: string
+    familyName: string
+    lng: number
+    lat: number
+    pid: string
+    address: string | null
+    householdCount: number
+  } | null>(null)
   /**
    * Legend and tools collapse to a single bar on a phone.
    *
@@ -136,6 +166,18 @@ export default function WardMap({ actorName }: { actorName: string }) {
    */
   const [nudge, setNudge] = useState(DEFAULT_IMAGERY_NUDGE)
   const [showNudge, setShowNudge] = useState(false)
+  /**
+   * Organization highlighting.
+   *
+   * `groups` is every org and class the ward has anybody in, fetched once — see
+   * /api/orgs/groups for why it ships whole. `groupKey` is the one currently
+   * highlighted, or null. `groupOpen` is whether the member list under the
+   * picker is unfolded; on a phone it is the difference between a card and a
+   * card that covers the map.
+   */
+  const [groups, setGroups] = useState<MapGroup[]>([])
+  const [groupKey, setGroupKey] = useState<string | null>(null)
+  const [groupOpen, setGroupOpen] = useState(false)
 
   useEffect(() => {
     const isCoarse = window.matchMedia('(pointer: coarse)').matches
@@ -197,6 +239,11 @@ export default function WardMap({ actorName }: { actorName: string }) {
       const res = await fetch('/api/parcels', { cache: 'no-store' })
       if (!res.ok) throw new Error(String(res.status))
       setParcels((await res.json()) as ParcelCollection)
+      // Groups are refreshed alongside the parcels rather than once on mount:
+      // moving a family onto a house changes which parcel this org highlights,
+      // and a stale index would leave the highlight on the old lot.
+      const orgRes = await fetch('/api/orgs/groups', { cache: 'no-store' })
+      if (orgRes.ok) setGroups(((await orgRes.json()) as { groups: MapGroup[] }).groups)
     } catch {
       setError('Could not load parcels. Reload the page.')
     } finally {
@@ -263,11 +310,18 @@ export default function WardMap({ actorName }: { actorName: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (picked.length) setPicked([])
+        // The drop question is a modal, so it takes Escape ahead of everything.
+        if (drop) {
+          setDrop(null)
+          void load()
+        } else if (picked.length) setPicked([])
         else if (selectMode) setSelectMode(false)
         else if (draft) setDraft(null)
         else if (placingPin) setPlacingPin(false)
-        else setSelected(null)
+        else if (selected) setSelected(null)
+        // Last, not first: the highlight is a view the user chose to be in, so
+        // it should survive backing out of everything drawn on top of it.
+        else setGroupKey(null)
         return
       }
       if ((e.key === 'Backspace' || e.key === 'Delete') && draft) {
@@ -277,17 +331,118 @@ export default function WardMap({ actorName }: { actorName: string }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [placingPin, draft, selectMode, picked.length])
+  }, [placingPin, draft, selectMode, picked.length, drop, selected, load])
 
   const visibleKeys = useMemo(
     () => LEGEND.map((l) => l.key).filter((k) => !hiddenKeys.includes(k)),
     [hiddenKeys],
   )
 
+  const activeGroup = useMemo(
+    () => groups.find((g) => g.key === groupKey) ?? null,
+    [groups, groupKey],
+  )
+
+  /**
+   * The highlight's colour: whatever the org chart paints this organization with.
+   *
+   * A class takes its organization's colour rather than one of its own, exactly
+   * as it does on the chart — a Primary class is Primary. Falls back to the
+   * neutral tint so the layers below always hold a valid colour, including while
+   * nothing is highlighted and their filters match nothing.
+   */
+  const tint = orgTint(activeGroup?.orgKey ?? 'other')
+  const ink = orgInk(activeGroup?.orgKey ?? 'other')
+
+  // Two lists, not one: an org and a class printed under it are different kinds
+  // of answer, and a flat dropdown of sixty entries mixing them is unreadable.
+  const orgOptions = useMemo(() => groups.filter((g) => g.kind === 'org'), [groups])
+  const unitOptions = useMemo(() => groups.filter((g) => g.kind === 'unit'), [groups])
+
+  /** Every parcel and pin the map has a shape for, so a member can be looked up. */
+  const placed = useMemo(() => {
+    const pids = new Set<string>()
+    const hids = new Set<string>()
+    for (const f of parcels.features) {
+      if (f.properties.kind === 'parcel') pids.add(f.properties.pid)
+      else hids.add(f.properties.hid)
+    }
+    return { pids, hids }
+  }, [parcels])
+
+  /**
+   * The homes of the highlighted group.
+   *
+   * Keyed by household rather than by person: a couple who both serve in the
+   * Primary is one house to knock on, and highlighting it twice says nothing
+   * extra. `missing` counts the members whose household has neither a parcel nor
+   * a pin — the honest number of people this highlight cannot show, which the
+   * card prints rather than quietly dropping them.
+   */
+  const groupHomes = useMemo(() => {
+    const empty = { homes: [] as GroupHome[], pids: [] as string[], hids: [] as string[], missing: 0 }
+    if (!activeGroup) return empty
+    // A record rather than a Map: `Map` is react-map-gl's component in this file.
+    const byHousehold: Record<string, GroupHome> = {}
+    for (const m of activeGroup.members) {
+      let home = byHousehold[m.householdId]
+      if (!home) {
+        const target: PanelTarget | null =
+          m.parcelId && placed.pids.has(m.parcelId)
+            ? { kind: 'parcel', parcelId: m.parcelId }
+            : placed.hids.has(m.householdId)
+              ? { kind: 'pin', householdId: m.householdId }
+              : null
+        home = { householdId: m.householdId, familyName: m.familyName, target, people: [] }
+        byHousehold[m.householdId] = home
+      }
+      home.people.push({
+        personId: m.personId,
+        name: m.name,
+        callings: m.callings,
+        via: m.via,
+      })
+    }
+    const homes = Object.values(byHousehold).sort((a, b) =>
+      a.familyName.localeCompare(b.familyName),
+    )
+    return {
+      homes,
+      pids: homes.flatMap((h) => (h.target?.kind === 'parcel' ? [h.target.parcelId] : [])),
+      hids: homes.flatMap((h) => (h.target?.kind === 'pin' ? [h.target.householdId] : [])),
+      missing: homes.filter((h) => !h.target).length,
+    }
+  }, [activeGroup, placed])
+
+  const orgActive = groupHomes.pids.length > 0 || groupHomes.hids.length > 0
+  /** Homes the highlight can actually draw — what the "N homes" count means. */
+  const shownHomes = groupHomes.homes.length - groupHomes.missing
+
+  // Written once and reused by every highlight layer and by the dimming on the
+  // base ones, so "is this home in the group" can never mean two things.
+  const isMemberParcel = useMemo(
+    () => ['in', ['get', 'pid'], ['literal', groupHomes.pids]],
+    [groupHomes.pids],
+  )
+  const isMemberPin = useMemo(
+    () => ['in', ['get', 'hid'], ['literal', groupHomes.hids]],
+    [groupHomes.hids],
+  )
+
   const parcelFilter = useMemo(
     () =>
-      ['all', ['==', ['get', 'kind'], 'parcel'], ['in', parcelCategory, ['literal', visibleKeys]]] as never,
-    [visibleKeys],
+      [
+        'all',
+        ['==', ['get', 'kind'], 'parcel'],
+        // A highlighted home is shown whatever the legend says. Otherwise asking
+        // for the Primary and being given nine of its twelve homes — because
+        // three are marked less-active and that key happens to be switched off —
+        // is a wrong answer the map gives silently.
+        orgActive
+          ? ['any', ['in', parcelCategory, ['literal', visibleKeys]], isMemberParcel]
+          : ['in', parcelCategory, ['literal', visibleKeys]],
+      ] as never,
+    [visibleKeys, orgActive, isMemberParcel],
   )
 
   // A pin is a household with no parcel, so it answers to its status key and to
@@ -297,9 +452,26 @@ export default function WardMap({ actorName }: { actorName: string }) {
       [
         'all',
         ['==', ['get', 'kind'], 'pin'],
-        ['in', ['coalesce', ['get', 'status'], 'unknown'], ['literal', visibleKeys]],
+        orgActive
+          ? [
+              'any',
+              ['in', ['coalesce', ['get', 'status'], 'unknown'], ['literal', visibleKeys]],
+              isMemberPin,
+            ]
+          : ['in', ['coalesce', ['get', 'status'], 'unknown'], ['literal', visibleKeys]],
       ] as never,
-    [visibleKeys],
+    [visibleKeys, orgActive, isMemberPin],
+  )
+
+  // The highlight prints its own labels, from a lower zoom and in its own
+  // colour, so the base ones step aside rather than write every name twice.
+  const labelFilter = useMemo(
+    () => (orgActive ? (['all', parcelFilter, ['!', isMemberParcel]] as never) : parcelFilter),
+    [orgActive, parcelFilter, isMemberParcel],
+  )
+  const pinLabelFilter = useMemo(
+    () => (orgActive ? (['all', pinFilter, ['!', isMemberPin]] as never) : pinFilter),
+    [orgActive, pinFilter, isMemberPin],
   )
 
   const fillLayer: FillLayerSpecification = {
@@ -309,7 +481,13 @@ export default function WardMap({ actorName }: { actorName: string }) {
     filter: parcelFilter,
     paint: {
       'fill-color': fillColorByStatus as never,
-      'fill-opacity': ['case', ['==', ['get', 'pid'], hovered ?? ''], 0.8, 0.55],
+      // Highlighting is subtractive: the group's homes keep their status colour
+      // at full strength and everything else drops back to a hint of one. A
+      // second colour on top would hide the very fact — active, less active,
+      // vacant — that makes the highlight worth looking at.
+      'fill-opacity': (orgActive
+        ? ['case', isMemberParcel, 0.9, 0.12]
+        : ['case', ['==', ['get', 'pid'], hovered ?? ''], 0.8, 0.55]) as never,
       'fill-translate': translate,
     },
   }
@@ -336,6 +514,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         3.5,
         1.1,
       ],
+      'line-opacity': (orgActive ? ['case', isMemberParcel, 1, 0.25] : 1) as never,
       // Hand-drawn parcels read as approximate, because they are.
       'line-dasharray': [
         'case',
@@ -352,7 +531,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
     type: 'symbol',
     source: 'parcels',
     minzoom: 16,
-    filter: parcelFilter,
+    filter: labelFilter,
     layout: {
       // Business name where there is one, otherwise the family name. A unit with
       // several tenants prints the first and a count — six names would cover the
@@ -400,7 +579,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
     type: 'symbol',
     source: 'parcels',
     minzoom: 16,
-    filter: pinFilter,
+    filter: pinLabelFilter,
     layout: {
       'text-field': ['get', 'familyName'],
       'text-size': 11,
@@ -416,6 +595,90 @@ export default function WardMap({ actorName }: { actorName: string }) {
     },
   }
 
+  /**
+   * Organization highlight, in four layers.
+   *
+   * Nothing here repaints the homes: they keep their status colour (see the fill
+   * layer above), so the highlight has to be carried entirely by what surrounds
+   * them. A wide blurred line under a crisp thin one reads as a glow around the
+   * lot, and unlike a thin outline it survives being drawn over aerial imagery.
+   */
+  const orgGlowLayer: LineLayerSpecification = {
+    id: 'org-glow',
+    type: 'line',
+    source: 'parcels',
+    filter: ['all', ['==', ['get', 'kind'], 'parcel'], isMemberParcel] as never,
+    paint: {
+      'line-color': tint,
+      'line-width': 8,
+      'line-blur': 4,
+      'line-opacity': 0.4,
+      'line-translate': translate,
+    },
+  }
+
+  const orgLineLayer: LineLayerSpecification = {
+    id: 'org-line',
+    type: 'line',
+    source: 'parcels',
+    filter: ['all', ['==', ['get', 'kind'], 'parcel'], isMemberParcel] as never,
+    paint: {
+      'line-color': tint,
+      'line-width': 2.4,
+      'line-translate': translate,
+    },
+  }
+
+  /** The same glow for a household that is a pin rather than a parcel. */
+  const orgPinLayer: CircleLayerSpecification = {
+    id: 'org-pin',
+    type: 'circle',
+    source: 'parcels',
+    filter: ['all', ['==', ['get', 'kind'], 'pin'], isMemberPin] as never,
+    paint: {
+      'circle-radius': 15,
+      'circle-color': tint,
+      'circle-opacity': 0.3,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': tint,
+      'circle-translate': translate,
+    },
+  }
+
+  /**
+   * Names the highlighted homes, from two zoom levels further out than the base
+   * labels and overlapping rather than dropping.
+   *
+   * Both are the point: a highlight you have to zoom in to read the names of
+   * answers "where" but not "who", and a quorum presidency living three doors
+   * apart is exactly the case where MapLibre would otherwise drop two of the
+   * three labels it was asked to draw.
+   */
+  const orgLabelLayer: SymbolLayerSpecification = {
+    id: 'org-label',
+    type: 'symbol',
+    source: 'parcels',
+    minzoom: 14.5,
+    filter: [
+      'any',
+      ['all', ['==', ['get', 'kind'], 'parcel'], isMemberParcel],
+      ['all', ['==', ['get', 'kind'], 'pin'], isMemberPin],
+    ] as never,
+    layout: {
+      'text-field': ['coalesce', ['get', 'familyName'], ''],
+      'text-size': 12,
+      'text-offset': [0, 1.05],
+      'text-anchor': 'top',
+      'text-allow-overlap': true,
+    },
+    paint: {
+      'text-color': ink,
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 2,
+      'text-translate': translate,
+    },
+  }
+
   const boundaryLayer: LineLayerSpecification = {
     id: 'ward-outline',
     type: 'line',
@@ -427,6 +690,64 @@ export default function WardMap({ actorName }: { actorName: string }) {
       'line-translate': translate,
     },
   }
+
+  /**
+   * Bounding box around a set of parcels and pins, or null when none of them are
+   * on the map. Read off the loaded GeoJSON rather than asked of MapLibre, which
+   * only knows about what is currently on screen.
+   */
+  const groupBounds = useCallback(
+    (pids: string[], hids: string[]): [[number, number], [number, number]] | null => {
+      const pidSet = new Set(pids)
+      const hidSet = new Set(hids)
+      let w = 180
+      let s = 90
+      let e = -180
+      let n = -90
+      let found = false
+      const bump = (lng: number, lat: number) => {
+        found = true
+        w = Math.min(w, lng)
+        e = Math.max(e, lng)
+        s = Math.min(s, lat)
+        n = Math.max(n, lat)
+      }
+      for (const f of parcels.features) {
+        if (isParcelFeature(f)) {
+          if (!pidSet.has(f.properties.pid)) continue
+          for (const polygon of f.geometry.coordinates)
+            for (const ring of polygon) for (const [lng, lat] of ring) bump(lng, lat)
+        } else {
+          if (!hidSet.has(f.properties.hid)) continue
+          bump(f.geometry.coordinates[0], f.geometry.coordinates[1])
+        }
+      }
+      return found ? [[w, s], [e, n]] : null
+    },
+    [parcels],
+  )
+
+  /** Frames every home in the highlighted group. */
+  const fitGroup = useCallback(() => {
+    const bounds = groupBounds(groupHomes.pids, groupHomes.hids)
+    // maxZoom matters for a group of one: without it the camera flies to street
+    // level, where the neighbouring houses that say *where* this is are off screen.
+    if (bounds) mapRef.current?.fitBounds(bounds, { padding: 60, duration: 600, maxZoom: 17 })
+  }, [groupBounds, groupHomes])
+
+  /** Opens one home from the member list, and takes the map to it. */
+  const focusHome = useCallback(
+    (home: GroupHome) => {
+      if (!home.target) return
+      const bounds =
+        home.target.kind === 'parcel'
+          ? groupBounds([home.target.parcelId], [])
+          : groupBounds([], [home.target.householdId])
+      if (bounds) mapRef.current?.fitBounds(bounds, { padding: 140, duration: 500, maxZoom: 18 })
+      setSelected(home.target)
+    },
+    [groupBounds],
+  )
 
   const addPinAt = useCallback(
     async (lng: number, lat: number) => {
@@ -506,7 +827,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
        */
       slop = 0,
     ): boolean => {
-      if (selectMode || draft || placingPin) return false
+      if (selectMode || draft || placingPin || drop) return false
       const map = mapRef.current?.getMap()
       // queryRenderedFeatures rather than e.features: this has to be exact, and
       // pointer-down is not one of the events react-map-gl reliably enriches.
@@ -522,23 +843,43 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
       map?.dragPan.disable()
       dragMoved.current = false
+      dragPoint.current = { x: point.x, y: point.y }
       const start = unnudge(lngLat)
       dragPinRef.current = { hid, lng: start.lng, lat: start.lat }
       setDragPin(dragPinRef.current)
       return true
     },
-    [selectMode, draft, placingPin, unnudge],
+    [selectMode, draft, placingPin, drop, unnudge],
   )
 
-  const movePinDrag = useCallback((lngLat: { lng: number; lat: number }): boolean => {
+  const movePinDrag = useCallback((
+    lngLat: { lng: number; lat: number },
+    point: { x: number; y: number },
+  ): boolean => {
     const pin = dragPinRef.current
     if (!pin) return false
     dragMoved.current = true
+    dragPoint.current = { x: point.x, y: point.y }
     const at = unnudge(lngLat)
     dragPinRef.current = { ...pin, lng: at.lng, lat: at.lat }
     setDragPin(dragPinRef.current)
     return true
   }, [unnudge])
+
+  /** Writes a pin's new point. Used by a plain move and by "keep it a pin". */
+  const savePinPoint = useCallback(
+    async (hid: string, lng: number, lat: number) => {
+      const res = await fetch(`/api/households/${encodeURIComponent(hid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lng, lat }),
+      })
+      if (!res.ok) setError('Could not move that pin. Reload and try again.')
+      // Reload either way: on failure this snaps the pin back to where it really is.
+      await load()
+    },
+    [load],
+  )
 
   const endPinDrag = useCallback(async (): Promise<boolean> => {
     const pin = dragPinRef.current
@@ -548,16 +889,70 @@ export default function WardMap({ actorName }: { actorName: string }) {
     setDragPin(null)
     if (!dragMoved.current) return true
 
-    const res = await fetch(`/api/households/${encodeURIComponent(pin.hid)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lng: pin.lng, lat: pin.lat }),
-    })
-    if (!res.ok) setError('Could not move that pin. Reload and try again.')
-    // Reload either way: on failure this snaps the pin back to where it really is.
-    await load()
+    /*
+     * Dropping onto a parcel is the whole point of this gesture: the import
+     * leaves a pin for every household it could not match to a county parcel,
+     * and dragging it onto the right house is how that gets fixed. The drop is
+     * read off the screen point rather than the coordinate, so the query goes
+     * through the same nudge the parcels are drawn with.
+     */
+    const at = dragPoint.current
+    const hit = at
+      ? mapRef.current?.getMap()?.queryRenderedFeatures([at.x, at.y], {
+          layers: ['parcel-fill'],
+        })?.[0]
+      : undefined
+    const pid = hit?.properties?.pid
+    if (typeof pid === 'string') {
+      const pinFeature = parcels.features.find(
+        (f) => f.properties.kind === 'pin' && f.properties.hid === pin.hid,
+      )
+      setDrop({
+        hid: pin.hid,
+        familyName:
+          pinFeature?.properties.kind === 'pin' ? pinFeature.properties.familyName : 'This family',
+        lng: pin.lng,
+        lat: pin.lat,
+        pid,
+        address: typeof hit?.properties?.address === 'string' ? hit.properties.address : null,
+        householdCount:
+          typeof hit?.properties?.householdCount === 'number' ? hit.properties.householdCount : 0,
+      })
+      return true
+    }
+
+    await savePinPoint(pin.hid, pin.lng, pin.lat)
     return true
-  }, [load])
+  }, [parcels, savePinPoint])
+
+  /** "Yes, this family lives here" — the household stops being a loose pin. */
+  const attachDrop = useCallback(async () => {
+    if (!drop) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/households/${encodeURIComponent(drop.hid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parcel_id: drop.pid }),
+      })
+      // Cleared either way: on failure the reload puts the pin back where it
+      // really is, and leaving the modal up over a stale ghost is worse than
+      // the error banner.
+      setDrop(null)
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        setError(body?.error ?? 'Could not attach that family to the property.')
+        await load()
+        return
+      }
+      await load()
+      // Open the property, not the household: the pin is gone now, and this is
+      // the confirmation that the family landed where it was meant to.
+      setSelected({ kind: 'parcel', parcelId: drop.pid })
+    } finally {
+      setBusy(false)
+    }
+  }, [drop, load])
 
   const onMouseDown = useCallback(
     (e: MapLayerMouseEvent) => {
@@ -689,16 +1084,19 @@ export default function WardMap({ actorName }: { actorName: string }) {
    * dragged moved to the pointer. The saved position only changes on release.
    */
   const mapData = useMemo(() => {
-    if (!dragPin) return parcels
+    // A pin awaiting the attach/keep answer stays where it was dropped, so the
+    // modal is talking about a house the user can still see it sitting on.
+    const ghost = dragPin ?? drop
+    if (!ghost) return parcels
     return {
       ...parcels,
       features: parcels.features.map((f) =>
-        f.properties.kind === 'pin' && f.properties.hid === dragPin.hid
-          ? { ...f, geometry: { type: 'Point' as const, coordinates: [dragPin.lng, dragPin.lat] } }
+        f.properties.kind === 'pin' && f.properties.hid === ghost.hid
+          ? { ...f, geometry: { type: 'Point' as const, coordinates: [ghost.lng, ghost.lat] } }
           : f,
       ),
     } as ParcelCollection
-  }, [parcels, dragPin])
+  }, [parcels, dragPin, drop])
 
   /** The outline being traced: filled area once it can close, plus the vertices. */
   const draftData = useMemo(() => {
@@ -726,7 +1124,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
   const onMouseMove = useCallback(
     (e: MapLayerMouseEvent) => {
-      if (movePinDrag(e.lngLat)) return
+      if (movePinDrag(e.lngLat, e.point)) return
       if (boxStart.current) {
         const s = boxStart.current
         setBox({ x1: s.x, y1: s.y, x2: e.point.x, y2: e.point.y })
@@ -743,9 +1141,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
   )
 
   const counts = useMemo(() => {
-    const parcelFeatures = parcels.features.filter(
-      (f): f is ParcelFeature => f.properties.kind === 'parcel',
-    )
+    const parcelFeatures = parcels.features.filter(isParcelFeature)
     const homes = parcelFeatures.filter((f) => f.properties.use === 'residence').length
     const pins = parcels.features.length - parcelFeatures.length
     const withHouseholds =
@@ -791,7 +1187,7 @@ export default function WardMap({ actorName }: { actorName: string }) {
         // Touch mirrors mouse so a pin can be dragged onto its house on a phone,
         // which is where this app is used.
         onTouchStart={(e) => startPinDrag(e.point, e.lngLat, 14)}
-        onTouchMove={(e) => movePinDrag(e.lngLat)}
+        onTouchMove={(e) => movePinDrag(e.lngLat, e.point)}
         onTouchEnd={() => void endPinDrag()}
         onTouchCancel={() => void endPinDrag()}
         cursor={
@@ -821,10 +1217,17 @@ export default function WardMap({ actorName }: { actorName: string }) {
 
         <Source id="parcels" type="geojson" data={mapData}>
           <Layer {...fillLayer} />
+          {/* Glow under the fill so only its outer half shows, then the crisp
+              line over the base outline it is meant to replace. */}
+          <Layer {...orgGlowLayer} />
           <Layer {...outlineLayer} />
+          <Layer {...orgLineLayer} />
           <Layer {...labelLayer} />
+          {/* Under the pin itself: this is the halo around it, not a second dot. */}
+          <Layer {...orgPinLayer} />
           <Layer {...pinLayer} />
           <Layer {...pinLabelLayer} />
+          <Layer {...orgLabelLayer} />
         </Source>
         {boundary && (
           <Source id="boundary" type="geojson" data={boundary as never}>
@@ -878,16 +1281,13 @@ export default function WardMap({ actorName }: { actorName: string }) {
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-sm font-semibold text-neutral-900">Ward Map</h1>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={async () => {
-                  await fetch('/api/auth/logout', { method: 'POST' })
-                  location.href = '/login'
-                }}
-                className="rounded px-1.5 py-1 text-xs text-neutral-500 underline underline-offset-2"
+              {/* The map is one section of the app; the dashboard is the way to the rest. */}
+              <Link
+                href="/"
+                className="inline-flex items-center rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 hover:border-neutral-900"
               >
-                Sign out
-              </button>
+                Dashboard
+              </Link>
               {/*
                 Collapsed, this card is one line instead of two thirds of a
                 phone screen. Expanded is still the default on a laptop.
@@ -936,6 +1336,202 @@ export default function WardMap({ actorName }: { actorName: string }) {
                 {label}
               </button>
             ))}
+          </div>
+
+          {/*
+            Organizations.
+            Pick a quorum, a presidency or a Primary class and its homes light up
+            while the rest of the ward falls back. Always visible, for the same
+            reason the basemap switch is: it changes what you are looking at
+            rather than how you edit it, and it is the answer to "who in this org
+            lives near whom" that no list can give.
+          */}
+          <div className="mt-2">
+            <label>
+              <span className="sr-only">Highlight an organization</span>
+              <select
+                value={groupKey ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setGroupKey(value || null)
+                  // Folded shut on every change: the list belongs to the group
+                  // that was open, and a new group's list is a different list.
+                  setGroupOpen(false)
+                }}
+                disabled={groups.length === 0}
+                className={`w-full rounded-md border border-neutral-300 bg-white px-2 text-xs text-neutral-800 disabled:opacity-50 ${TAP}`}
+              >
+                <option value="">
+                  {groups.length === 0
+                    ? 'No organizations imported yet'
+                    : 'Highlight an organization…'}
+                </option>
+                {orgOptions.length > 0 && (
+                  <optgroup label="Organizations">
+                    {orgOptions.map((g) => (
+                      <option key={g.key} value={g.key}>
+                        {groupTitle(g)} ({g.members.length})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {unitOptions.length > 0 && (
+                  <optgroup label="Classes and groups">
+                    {unitOptions.map((g) => (
+                      <option key={g.key} value={g.key}>
+                        {groupTitle(g)} ({g.members.length})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+
+            {activeGroup && (
+              <div
+                className="mt-1.5 rounded-md border p-2"
+                // The chart draws an organization as its tint at 6% inside a 30%
+                // outline; this is the same recipe, so the card and the block on
+                // the chart read as one colour rather than two that nearly match.
+                // --org-wash is here because a row's hover cannot be an inline
+                // style.
+                style={
+                  {
+                    '--org-wash': `${tint}1f`,
+                    background: `${tint}12`,
+                    borderColor: `${tint}59`,
+                  } as React.CSSProperties
+                }
+              >
+                <div className="flex items-start gap-2">
+                  <span
+                    aria-hidden
+                    className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ background: tint }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <Clamped className="font-medium" style={{ color: ink }}>
+                      {groupTitle(activeGroup)}
+                    </Clamped>
+                    {/* People and homes are different numbers and both are
+                        wanted: eleven people in seven houses is seven doors. The
+                        leaders are called out because a Primary class highlight
+                        is mostly children and two adults, and which of the
+                        fourteen names are the adults is the first question. */}
+                    <p className="text-[11px] text-neutral-600">
+                      {activeGroup.members.length}{' '}
+                      {activeGroup.members.length === 1 ? 'person' : 'people'}
+                      {activeGroup.rosterCount > 0 && activeGroup.servesCount > 0 && (
+                        <span className="text-neutral-500">
+                          {' '}
+                          ({activeGroup.servesCount} serving)
+                        </span>
+                      )}
+                      {' · '}
+                      {shownHomes} home{shownHomes === 1 ? '' : 's'}
+                      {groupHomes.missing > 0 && (
+                        <>
+                          {' · '}
+                          <span
+                            className="text-amber-700"
+                            title="These households have no parcel and no pin, so there is nothing to highlight"
+                          >
+                            {groupHomes.missing} not on the map
+                          </span>
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-1.5 flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={fitGroup}
+                    disabled={shownHomes === 0}
+                    style={{ borderColor: `${tint}80`, color: ink }}
+                    className={`flex-1 rounded-md border bg-white px-2 text-[11px] font-medium disabled:opacity-40 ${TAP}`}
+                  >
+                    Zoom to fit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGroupOpen((v) => !v)}
+                    aria-expanded={groupOpen}
+                    style={{ borderColor: `${tint}80`, color: ink }}
+                    className={`flex-1 rounded-md border bg-white px-2 text-[11px] font-medium ${TAP}`}
+                  >
+                    {groupOpen ? 'Hide list' : `List ${groupHomes.homes.length}`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGroupKey(null)
+                      setGroupOpen(false)
+                    }}
+                    style={{ borderColor: `${tint}80`, color: ink }}
+                    className={`rounded-md border bg-white px-2 text-[11px] ${TAP}`}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {/* Capped and scrollable: Relief Society is most of the ward, and
+                    a list that long would push the map off the screen. */}
+                {groupOpen && (
+                  <ul
+                    style={{ borderColor: `${tint}40` }}
+                    className="mt-1.5 max-h-52 space-y-0.5 overflow-y-auto border-t pt-1.5"
+                  >
+                    {groupHomes.homes.map((home) => (
+                      <li key={home.householdId}>
+                        <button
+                          type="button"
+                          onClick={() => focusHome(home)}
+                          disabled={!home.target}
+                          title={
+                            home.target
+                              ? 'Show this home on the map'
+                              : 'This household has no parcel and no pin yet'
+                          }
+                          className={`w-full rounded px-1.5 py-1 text-left ${
+                            home.target
+                              ? 'hover:bg-[var(--org-wash)]'
+                              : 'cursor-default opacity-50'
+                          }`}
+                        >
+                          {/* Name over calling, one person per block. Callings
+                              are long — 'Primary Activities - Boys 9 & 10
+                              Specialist' — and on one line with the name neither
+                              fits, so the name gets the line it needs to be
+                              scanned down and the calling gets its own. */}
+                          {home.people.map((person) => (
+                            <span key={person.personId} className="mt-1 block first:mt-0">
+                              <Clamped className="font-medium text-neutral-800">
+                                {sortedName(person.name, home.familyName)}
+                              </Clamped>
+                              {/* 'Member' rather than a blank line: an empty
+                                  second line under a name reads as missing data,
+                                  and on a class roster it is the normal case. */}
+                              {(person.callings.length > 0 || person.via === 'roster') && (
+                                <Clamped className="text-[11px] text-neutral-500">
+                                  {person.callings.length > 0
+                                    ? person.callings.join(', ')
+                                    : 'Member'}
+                                </Clamped>
+                              )}
+                            </span>
+                          ))}
+                          {!home.target && (
+                            <span className="block text-[11px] text-amber-700">Not on the map</span>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
 
           {controlsOpen && (
@@ -1257,6 +1853,68 @@ export default function WardMap({ actorName }: { actorName: string }) {
         </div>
       )}
 
+      {drop && (
+        <div
+          className="absolute inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="drop-title"
+        >
+          <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
+            <h2 id="drop-title" className="text-sm font-semibold text-neutral-900">
+              Move {drop.familyName} into this property?
+            </h2>
+            <p className="mt-2 text-xs leading-relaxed text-neutral-600">
+              {drop.address ?? 'This property'} — the household stops being a loose
+              pin and is listed at this address.
+              {drop.householdCount > 0 && (
+                <>
+                  {' '}
+                  {drop.householdCount === 1
+                    ? 'One household already lives here'
+                    : `${drop.householdCount} households already live here`}
+                  ; this one is added alongside them.
+                </>
+              )}
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void attachDrop()}
+                className={`rounded-md bg-blue-600 px-3 font-medium text-white disabled:opacity-50 ${TAP}`}
+              >
+                Yes, they live here
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  const d = drop
+                  setDrop(null)
+                  await savePinPoint(d.hid, d.lng, d.lat)
+                }}
+                className={`rounded-md border border-neutral-300 px-3 text-neutral-800 disabled:opacity-50 ${TAP}`}
+              >
+                No, just move the pin here
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setDrop(null)
+                  // Nothing was written, so a reload puts the pin back where it was.
+                  void load()
+                }}
+                className={`rounded-md px-3 text-neutral-500 disabled:opacity-50 ${TAP}`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {selected && (
         <ParcelPanel
           target={selected}
@@ -1341,6 +1999,92 @@ function ToolButton({
       </span>
     </div>
   )
+}
+
+/**
+ * One line of text that gets a tooltip only when it does not fit.
+ *
+ * A `title` on every line would mean hovering a name that is perfectly readable
+ * pops a box repeating it back. So the element measures itself instead —
+ * scrollWidth past clientWidth is exactly "this is being ellipsised" — and
+ * re-measures on resize, because the legend card is a fraction of the viewport
+ * and the same name clips on a phone and does not on a laptop.
+ */
+function Clamped({
+  children,
+  className,
+  style,
+}: {
+  children: string
+  className?: string
+  style?: React.CSSProperties
+}) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [clipped, setClipped] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // A pixel of tolerance: sub-pixel text widths otherwise report every line as
+    // overflowing by a fraction and every line gets a tooltip after all.
+    const measure = () => setClipped(el.scrollWidth > el.clientWidth + 1)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [children])
+  return (
+    <span
+      ref={ref}
+      className={`block truncate ${className ?? ''}`}
+      style={style}
+      // Undefined, not '': an empty title still renders an empty tooltip box.
+      title={clipped ? children : undefined}
+    >
+      {children}
+    </span>
+  )
+}
+
+/**
+ * 'Jolene Van Ausdal' under the Van Ausdal household → 'Van Ausdal, Jolene'.
+ *
+ * Surname first because these lists are scanned down for a family, and that is
+ * the order every church report prints. People are stored as a single
+ * `full_name`, so the surname is recovered by matching the household's family
+ * name off the end rather than by splitting on the last space — which would
+ * print 'Ausdal, Jolene Van'.
+ */
+function sortedName(fullName: string, familyName: string): string {
+  const name = fullName.trim()
+  const family = familyName.trim()
+  const suffix = ` ${family.toLowerCase()}`
+  if (family && name.toLowerCase().endsWith(suffix)) {
+    const given = name.slice(0, name.length - suffix.length).trim()
+    if (given) return `${family}, ${given}`
+  }
+  // Somebody whose name does not end in their household's family name: a
+  // grandmother under her daughter's roof, a hyphenated marriage, a typo. Left
+  // exactly as recorded rather than guessed at.
+  return name
+}
+
+/**
+ * `properties.kind` is the discriminant, but it is nested: a check on it narrows
+ * `f.properties` and leaves `f.geometry` a union, so anything that reads a
+ * polygon's rings needs the predicate spelled out.
+ */
+function isParcelFeature(f: ParcelFeature | PinFeature): f is ParcelFeature {
+  return f.properties.kind === 'parcel'
+}
+
+/**
+ * 'Young Men › Deacons Quorum', 'Primary › Valiant 9'.
+ *
+ * The path is not decoration: half the sub-headings LCR prints are 'Presidency',
+ * 'Teachers' or 'Ministering', which name nothing on their own.
+ */
+function groupTitle(g: MapGroup): string {
+  return g.parentLabel ? `${g.parentLabel} \u203a ${g.label}` : g.label
 }
 
 /** The id the outline/circle paint expressions compare against, '' when nothing is selected. */

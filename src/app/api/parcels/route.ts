@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
-import { requireSession } from '@/lib/auth'
+import { authErrorResponse, requireSession } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -23,8 +23,8 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     await requireSession()
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const rows = (await sql`
@@ -95,8 +95,8 @@ export async function GET() {
 
   return NextResponse.json(rows[0]?.fc ?? { type: 'FeatureCollection', features: [] }, {
     headers: {
-      // private, NOT s-maxage. A shared CDN cache would hold member names,
-      // addresses and phone numbers keyed on a URL the CDN does not vary by cookie.
+      // private, NOT s-maxage. A shared CDN cache would hold member names and
+      // home addresses keyed on a URL the CDN does not vary by cookie.
       'Cache-Control': 'private, max-age=30, must-revalidate',
     },
   })

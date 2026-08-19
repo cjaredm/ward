@@ -1,0 +1,94 @@
+# A cut-down members variant of LCR's "Organizations and Callings" report, in the
+# shape the real one comes in. Every name is invented — the real report is a list
+# of members and belongs in /data/, which is gitignored.
+#
+#   = section heading      -> an org
+#   - roster heading       -> an (org, unit) pair
+#   $ printed count        -> the 'Count: N' the report prints under a roster
+#   ! footnote             -> the lines explaining the * and ** gutter flags
+#   anything else          -> a name, with its gutter flags as printed
+#
+# Feeds scripts/test-parse-rosters.ts, which lays this out as a real PDF and
+# breaks it across pages so a roster continued overleaf still parses.
+#
+# Covers every heading shape the real report uses: a roster named after its own
+# section (Elders Quorum), one named after a child org (Deacons Quorum under
+# Aaronic Priesthood Quorums, Nursery under Primary), one named after a seeded
+# Young Women class, and the ward-specific classes that are not orgs at all
+# (Adult Sunday School, Course 15, Valiant 9, Primary Activities - Boys 9 & 10).
+= Elders Quorum
+- Elders Quorum Members
+Alder, Marcus
+Brennan, Taylor
+Corbin, James E
+Mc Alister, Bart
+Okonkwo, Tobi
+Van Buren, Leon
+$ 6
+= Relief Society
+- Relief Society Members
+Alder, Cheyenne Rae
+** Brennan, Jordyn
+Delgado, Mary Elizabeth
+DeWinter, Catherine Elizabeth
+Kittredge, Marisol Ann
+mcbride, Jennifer
+! ** Unbaptized members of record age 9 and over and those baptized but not confirmed are not included in unit statistics or Quarterly Reports.
+$ 6
+= Aaronic Priesthood Quorums
+- Priests Quorum Members
+Alder, Easton
+** Ferrer, Jacob
+$ 2
+- Deacons Quorum Members
+Brennan, Grayson Jordan
+Okonkwo, Krew Jace
+** Prescott, Ryker Jake
+! ** Unbaptized members of record age 9 and over and those baptized but not confirmed are not included in unit statistics or Quarterly Reports.
+$ 3
+= Young Women
+- Gatherers of Light Members
+Corbin, Alice
+Delgado, Kaia Tait
+Jenson, ElizaJane
+** Whitfield, Callie Mae
+! ** Unbaptized members of record age 9 and over and those baptized but not confirmed are not included in unit statistics or Quarterly Reports.
+$ 4
+- Messengers of Hope Members
+Ferrer, Olivia Lily
+Kittredge, Macie
+Van Buren, Audrey Yvonne
+$ 3
+= Sunday School
+- Adult Sunday School Members
+Alder, Marcus
+Alder, Cheyenne Rae
+Brennan, Taylor
+Delgado, Mary Elizabeth
+$ 4
+- Course 15 Members
+Alder, Easton
+Delgado, Kaia Tait
+* Ferrer, Jacob
+! * out of default class assignment
+$ 3
+= Primary
+- Valiant 9 Members
+Osgood, Graham James
+Ramsey, Claire Elizabeth
+** Whitfield, Colter Tymber
+! ** Unbaptized members of record age 9 and over and those baptized but not confirmed are not included in unit statistics or Quarterly Reports.
+$ 3
+- Primary Activities - Boys 9 & 10 Members
+Osgood, Graham James
+$ 1
+- Nursery Members
+Prescott, Haven Tyler
+Powell, Ryla Chantel
+$ 2
+= Young Single Adult
+- Young Single Adult Members
+* Okonkwo, Tobi
+* ** Ferrer, Jacob
+! ** Unbaptized members of record age 9 and over and those baptized but not confirmed are not included in unit statistics or Quarterly Reports.
+$ 2

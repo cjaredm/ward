@@ -15,8 +15,15 @@
     "import:directory": "tsx scripts/import-directory.ts",
     "import:businesses": "tsx scripts/import-businesses.ts",
     "fetch:places": "python3 scripts/fetch-places.py",
-    "hash-password": "tsx scripts/hash-password.ts",
-    "test:clobber": "tsx scripts/test-import-clobber.ts"
+    "test:clobber": "tsx scripts/test-import-clobber.ts",
+    "test:callings": "tsx scripts/test-parse-callings.ts",
+    "test:members": "tsx scripts/test-parse-members.ts",
+    "test:match": "tsx scripts/test-match-people.ts",
+    "test:orgtree": "tsx scripts/test-org-tree.ts",
+    "test:rosters": "tsx scripts/test-parse-rosters.ts",
+    "test:mapgroups": "tsx scripts/test-map-groups.ts",
+    "test:orglayout": "tsx scripts/test-org-layout.ts",
+    "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -27,6 +34,7 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-map-gl": "^8.1.2",
+    "unpdf": "^1.8.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

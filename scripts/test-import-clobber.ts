@@ -47,8 +47,8 @@ run(async () => {
     const householdId = h.rows[0].id
 
     await client.query(
-      `INSERT INTO people (household_id, full_name, role, phone, email)
-       VALUES ($1, $2, 'head', '555-0100', 'clobber@example.test')`,
+      `INSERT INTO people (household_id, full_name)
+       VALUES ($1, $2)`,
       [householdId, MARKER],
     )
 
@@ -101,12 +101,12 @@ run(async () => {
         check('notes intact', h.rows[0].notes, MARKER)
       }
 
-      const p = await client.query<{ full_name: string; phone: string | null }>(
-        `SELECT full_name, phone FROM people WHERE household_id = $1`,
+      const p = await client.query<{ full_name: string }>(
+        `SELECT full_name FROM people WHERE household_id = $1`,
         [seeded.householdId],
       )
       check('person still exists', p.rowCount, 1)
-      if (p.rowCount === 1) check('person phone intact', p.rows[0].phone, '555-0100')
+      if (p.rowCount === 1) check('person name intact', p.rows[0].full_name, MARKER)
 
       // A business row is ward work too: the import must not cascade it away.
       const b = await client.query<{ name: string }>(

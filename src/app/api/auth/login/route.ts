@@ -1,14 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { COOKIE_NAME, cookieOptions, signSession } from '@/lib/auth'
-import { resolvePasswordHash } from '@/lib/password'
+import { recordLogin, verifyCredentials } from '@/lib/users'
 
 export const runtime = 'nodejs'
 
 const Body = z.object({
-  password: z.string().min(1),
-  name: z.string().trim().min(2).max(60),
+  email: z.string().trim().email().max(200),
+  password: z.string().min(1).max(200),
 })
 
 /**
@@ -37,32 +36,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too many attempts. Try again later.' }, { status: 429 })
   }
 
-  let hash: string
-  try {
-    hash = resolvePasswordHash()
-  } catch (err) {
-    // Loud and specific: a mangled hash otherwise presents as "Incorrect
-    // password" forever, with nothing to debug from.
-    console.error(err instanceof Error ? err.message : err)
-    return NextResponse.json(
-      { error: 'Server password is not configured correctly. Check the server logs.' },
-      { status: 500 },
-    )
-  }
-
-  // Never log the parsed body — it carries the shared password.
+  // Never log the parsed body — it carries a password.
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
-    return NextResponse.json({ error: 'Enter your name and the password.' }, { status: 400 })
+    return NextResponse.json({ error: 'Enter your email and password.' }, { status: 400 })
   }
 
-  const ok = await bcrypt.compare(parsed.data.password, hash)
-  if (!ok) {
-    return NextResponse.json({ error: 'Incorrect password.' }, { status: 401 })
+  const user = await verifyCredentials(parsed.data.email, parsed.data.password)
+  if (!user) {
+    // One message for wrong password, unknown address and deactivated account
+    // alike, so the form cannot be used to enumerate who has access.
+    return NextResponse.json({ error: 'Incorrect email or password.' }, { status: 401 })
   }
 
-  const token = await signSession({ name: parsed.data.name })
-  const res = NextResponse.json({ ok: true, name: parsed.data.name })
+  await recordLogin(user.id)
+
+  const token = await signSession({ sub: user.id, name: user.name })
+  const res = NextResponse.json({
+    ok: true,
+    name: user.name,
+    mustChangePassword: user.must_change_password,
+  })
   res.cookies.set(COOKIE_NAME, token, cookieOptions())
   return res
 }

@@ -7,8 +7,14 @@ See [Plan.md](Plan.md) for the product spec.
 
 ## Privacy
 
-This app stores names, home addresses, phone numbers and email addresses of church members,
-including minors. It is gated by a single shared password, sends `X-Robots-Tag: noindex`,
+This app stores names and home addresses of church members, including minors. It deliberately
+stores **no phone numbers and no email addresses** for them — neither LCR report carries those, and
+columns nobody fills are columns nobody can leak (see
+[migrations/0011_drop_person_contact.sql](migrations/0011_drop_person_contact.sql)). The only email
+addresses in the database are the sign-in addresses of the accounts that use the app.
+
+Access is by named account — one email and password per person, granted by an
+admin — and the app sends `X-Robots-Tag: noindex`,
 disallows all crawlers, and is not connected to any Church system. `.env*` is gitignored —
 a leaked `DATABASE_URL` is a full disclosure of everything above.
 
@@ -29,21 +35,12 @@ a leaked `DATABASE_URL` is a full disclosure of everything above.
 
 ```sh
 cp .env.example .env.local
-npm run hash-password -- 'the shared ward password'   # prints WARD_APP_PASSWORD_HASH + AUTH_JWT_SECRET
+openssl rand -base64 32   # AUTH_JWT_SECRET
 ```
 
-Fill in `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct), and the two printed secrets.
-Paste them exactly as printed — no quotes, no escaping — and don't leave the plaintext
-password in the file.
-
-`WARD_APP_PASSWORD_HASH` is the bcrypt hash **base64-encoded**, on purpose. Next.js runs
-dotenv-expand over `.env` files, and a raw bcrypt hash starts with `$2b$12$` — those read as
-variable references and expand to nothing, so the value silently truncates and every login
-fails with "Incorrect password" while the password is fine. Escaping each `$` fixes `.env`
-but Vercel's dashboard stores values literally, so the same secret would need two different
-forms. Base64 has no `$` and is byte-identical everywhere.
-[src/lib/password.ts](src/lib/password.ts) still accepts a raw hash where it survives intact,
-and throws a specific error rather than a generic auth failure when it doesn't.
+Fill in `DATABASE_URL` (pooled), `DATABASE_URL_UNPOOLED` (direct) and `AUTH_JWT_SECRET`.
+There is no app-wide password env var: passwords are per-person, bcrypt-hashed in the `users`
+table. Changing `AUTH_JWT_SECRET` signs everyone out.
 
 ### 3. Load the data
 
@@ -53,6 +50,16 @@ npm run seed:boundary    # geojson.json -> ward_boundary
 npm run import:parcels   # UGRC county layer -> parcels, clipped to the boundary
 npm run import:directory # optional: a ward directory export -> households + people
 ```
+
+Then make the first account — the only one that cannot be made from inside the app, since
+nobody can sign in yet:
+
+```sh
+npm run create-user -- you@example.com 'Your Name' --admin
+```
+
+It prints a temporary password once. Sign in with it, replace it when prompted, then add
+everyone else from **Dashboard → People & access**.
 
 Expected import summary: **539 parcels kept**, 93 of them non-residential (blank `PARCEL_ADD`
 — HOA common area, roads, retention basins). Verify the smoke-test parcel landed:
@@ -71,6 +78,37 @@ SELECT parcel_id, address FROM parcels WHERE address ILIKE '%PAINTED VISTA%';
    `sync:boundary` against the direct endpoint (see below).
 
 Push to `main` deploys. That is the whole pipeline.
+
+## Accounts & permissions
+
+Everyone signs in with their own email and password. Signing in lands on the **dashboard** — a
+grid of the sections that person is allowed to open — not on the map; the map is one section
+among several.
+
+Admins manage people at **/admin/users**:
+
+- **Add person** — name, email, and which sections they can open. A temporary password is
+  generated in the browser and shown once; send it to them out of band. Only its bcrypt hash
+  reaches the server.
+- **Manage** — rename, change email, toggle sections, grant or remove admin, reset the
+  password, deactivate.
+
+Some deliberate choices:
+
+- **Deactivate, never delete.** `households.updated_by` and `audit_log.actor` hold the display
+  name of whoever made an edit; the person behind those strings has to keep existing.
+- **The last active admin cannot be demoted or deactivated.** Getting back in from there needs
+  a terminal and the direct database URL, so the API refuses it.
+- **Permissions are read from the database on every request**, never from the session cookie.
+  The cookie is a 7-day JWT carrying only the user id and display name — a permission baked
+  into it would keep asserting itself for a week after being revoked. See
+  [src/lib/auth.ts](src/lib/auth.ts).
+- **Admins bypass the permission list** rather than being auto-granted every key, so sections
+  added later are open to them without a backfill.
+
+Sections live in one place — [src/lib/permissions.ts](src/lib/permissions.ts). Adding one means
+adding an entry there and a route under `src/app/(app)/`; the dashboard card, the admin
+checkbox and the server-side gate all read from it.
 
 ## Redrawing the ward boundary
 
@@ -147,6 +185,176 @@ made in the app always win.
 Pins parked at the ward centre are meant to be dragged onto their houses: press and drag a pin
 on the map, on desktop or on a phone.
 
+The address matching and pin placement live in
+[src/lib/import/place.ts](src/lib/import/place.ts), shared with the member-list upload in the app
+so the two importers cannot drift apart.
+
+## Members
+
+**Members** (`/members`) is the ward as a list: one line per person, with their family, the address
+they are listed at and the callings they hold. The map answers *who lives here*; this page answers
+*where is this person*, which is the question somebody with a name in hand actually has.
+
+- **Search** matches name, family name, address and calling, so "clerk" and "Amity" both find rows.
+- **Filter by status** narrows to move-ins, less-active, vacant, and so on — the same statuses and
+  the same colour dots the map draws.
+- **Tap a row** to open the household inline. It is the *same form* the map panel opens
+  ([src/components/HouseholdForm.tsx](src/components/HouseholdForm.tsx)), shared by both so a
+  correction made here cannot behave differently from one made there: autosave on blur, an explicit
+  Save, add or remove people, and Delete this household.
+
+Two rows of the same family open one editor — they are one record, and two live copies of it would
+race each other's autosave. Callings stay read-only: they come from the LCR report and hand-edits
+here would be overwritten by the next upload.
+
+The whole list is read on page load and filtered in the browser. A ward is a few hundred people;
+a round trip per keystroke on a phone is the slower design.
+
+Existing non-admin accounts need the **Members** section ticked at `/admin/users` before the card
+shows up for them; admins see it already.
+
+## Callings and the org chart
+
+**Org chart** (`/org-chart`) shows the ward two ways, and remembers which one you last used:
+
+- **List** — every organization, the callings in it and who holds them, in the order LCR printed
+  them, so a presidency reads as a presidency rather than as four people sorted alphabetically.
+- **Chart** — the same data as a line of authority. Presidents hang off the bishop, counselors and
+  the secretary off their president, an assistant off the secretary, and everyone else off the
+  sub-heading they were printed under. A quorum presidency answers to the bishop, because the
+  bishopric presides over the Aaronic Priesthood; a class presidency answers to the Young Women
+  president.
+
+Vacant callings are shown in both, because the openings are the point of the page.
+
+The chart runs **sideways** by default — one column per level, people stacked down the page. Drawn
+downward a ward is about 25,000 points wide and legible only when zoomed out past reading size;
+sideways it is roughly 1,100 wide and as long as it needs to be, so the first paint is readable and
+the rest is a scroll. *Top-down* switches to the classic shape, *Fit* shrinks the whole thing into
+view, *100%* returns to full size. Drag to pan, scroll or pinch to zoom, tap a box to open or close
+what is under it. Sub-headings start collapsed with a `+N` badge, so the opening view is the
+presidencies.
+
+A calling whose holder has no record in the ward data yet is shown in blue with the name as the
+report printed it, rather than dropped — the report says somebody holds it, and the ward's own
+records simply have not caught up. Those link themselves up once the people exist.
+
+Existing non-admin accounts need the **Org chart** section ticked at `/admin/users` before the
+card shows up for them; admins see it already.
+
+Three reports feed this: the callings report below, the organization rosters after it, and the
+member list further down. None of them is typed in by hand.
+
+Callings arrive by uploading LCR's report rather than being typed in. In LCR: **Reports →
+Organizations and Callings → Export to PDF**, then **Import from LCR** (`/admin/import`, admins
+only) → *Preview changes*. Nothing is written until you press *Apply*, and the preview is the
+whole plan:
+
+| in the preview | means |
+| --- | --- |
+| **New callings** | matched a person who does not hold this calling yet |
+| **Unchanged** | already recorded exactly as printed |
+| **Released** | held right now, absent from this report — a reorganization |
+| **Vacant** | printed as *Calling Vacant*; kept, not dropped |
+| **Ambiguous** | more than one person answers to that name — left for a human |
+| **No such person** | nobody in the ward data matches; usually a member who was never imported |
+
+The report is authoritative for the organizations it contains, so a calling that has fallen off it
+is **released** — soft, so who held what stays answerable. Releases are listed by name in the
+preview before you apply. Re-uploading the same file is a no-op.
+
+Three things get written: a `callings` row per calling (many per person — a clerk is usually two,
+and an unmatched holder is stored with their printed name and no person attached),
+a `person_orgs` row per organization the person now belongs to, and one `import_batches` row
+recording counts only. Names never go into the audit trail.
+
+Names are matched on the parts that survive both spellings — surname plus first given name — so
+`Prescott, Haven Tyler` finds `Haven Prescott` and `Mc Alister, Crystal` finds `Crystal McAlister`.
+Anything matching two people is reported, never guessed at.
+
+Organizations are a tree in the `orgs` table: coarse at the top (Elders Quorum, Relief Society,
+Young Men, …) with the children the report already prints (Deacons Quorum under Young Men, Nursery
+under Primary). Breaking one down further later is an INSERT, not a data migration.
+
+Both halves of the parser are covered without a database or a real report:
+
+```sh
+npm run test:callings    # renders scripts/fixtures/callings-sample.txt into a real PDF, parses both ways
+npm run test:rosters     # organization rosters, every heading shape, broken across pages
+npm run test:members     # member list, including a member split across a page break
+npm run test:match       # report name -> person, including the cases that must stay ambiguous
+npm run test:orgtree     # who ends up under whom
+npm run test:orglayout   # chart geometry: no overlaps, parents centred, both orientations
+npm run test:mapgroups   # the groups the map highlights, and the order they are offered in
+```
+
+Once the whole ward's callings are in, each person in the map panel shows their callings as chips.
+They are read-only there — the next upload is the source of truth.
+
+### Organization rosters
+
+The same LCR report with **Include members** ticked prints a roster per organization and per class:
+*Elders Quorum Members*, *Gatherers of Light Members*, *Valiant 9 Members*, *Course 15 Members*.
+Upload it on `/admin/import` under **Organization rosters**, same preview-then-apply flow.
+
+This is the difference between who **serves** in an organization and who **belongs** to it. Before
+it, `person_orgs` was written only by the callings import, so highlighting Young Women on the map
+lit up the presidency's four houses. Now it lights up the nine Gatherers of Light girls as well,
+with their two advisers marked as serving rather than merely listed.
+
+A class is not an org. *Gatherers of Light* and *Deacons Quorum* are seeded orgs, but *Course 15*,
+*Valiant 9* and *Primary Activities - Boys 9 & 10* are ward-specific and renumber every January —
+so membership carries a `unit` the way `callings` already does, and `''` means the organization
+itself. A membership rolls up one level: a Valiant 9 child is in Valiant 9 and in Primary.
+
+Both importers write memberships and sometimes the same one, so `source` is part of the primary key
+of `person_orgs`. Each owns its own rows: a roster re-import removes what the last roster said and
+never touches what the callings report said.
+
+Two rows in the preview are worth reading before applying:
+
+| in the preview | means |
+| --- | --- |
+| **Same person twice** | two names on the report matched one person — held back, not guessed |
+| **Rosters** table | rows read against the `Count:` LCR printed under each roster |
+
+The first one is the trap. The report prints `Richards, Colter` in the Elders Quorum and
+`Richards, Colter Tymber` in Valiant 9 — father and son, with only the father in the ward data —
+and the matcher's tolerance for middle names is exactly what makes the son look like the father. A
+wrong guess there has no visible symptom: the class highlight would show a grown man's name and
+look entirely reasonable. So when two printed names land on one person, both are skipped and
+reported. Add the missing people, then upload the file again.
+
+The rosters table is a check the report itself can settle, since LCR prints its own counts: a
+roster that reads short of its printed count is a parse problem, not a class that shrank.
+
+### The member list
+
+**Reports → Member List → Export to PDF**, then the same preview-then-apply flow on
+`/admin/import`. It reads the two-column report, including the awkward parts: a three-line address
+with the name set against its middle, a member whose address is cut in half by a page break, and
+the members LCR prints with no address at all.
+
+Members are grouped into households by **address plus surname** — four families share 1579 S
+Scenic Sunrise Dr, so address alone would merge them — and each household is placed exactly the way
+the directory script places one: onto the county parcel at that address, or interpolated between
+its numbered neighbours, or parked at the centre of the ward to be dragged onto its house.
+
+The import is **additive only**:
+
+| in the preview | what Apply does |
+| --- | --- |
+| New people, new households | creates them |
+| Address differs | **nothing** — listed so a person can move the household on the map |
+| Not on the report | **nothing** — listed, never deleted |
+
+Moving a family is a decision about which house on the map they now live in, and the map holds
+hand-placed pins and notes a report cannot know about. So the report never overwrites it.
+
+Applying also **links up the callings** left hanging by the callings import: a calling stored with a
+printed name now points at the person, where exactly one person answers to that name. Run the
+member list first and the callings report second and almost nothing is left unlinked.
+
 ## Naming the businesses
 
 A parcel marked **Business** holds a list of tenants — many per parcel, the same shape
@@ -180,6 +388,55 @@ geocoded to the street or the wrong end of a building. An address-only match is 
 allowed onto a parcel **already marked as a business**: it is not strong enough to put a shop
 name on somebody's house. Parcels that already have a tenant are skipped entirely, which covers
 both hand-typed names and a tenant somebody deliberately deleted.
+
+## Highlighting an organization
+
+The dropdown at the top of the map's legend card lists every organization and every class the ward
+has anybody in. Pick one and its members' homes keep their status colour at full strength while the
+rest of the ward drops back to a hint of one, ringed and named from two zoom levels further out
+than the ordinary labels.
+
+The ring, the labels and the card around the list are all drawn in **the organization's own colour
+from the org chart** — teal for the elders quorum, orange for the Primary, purple for the Young
+Women classes. The palette is [`ORG_TINT` in src/lib/orgs.ts](src/lib/orgs.ts), shared by both
+screens rather than copied into each: a quorum that is teal on the chart and magenta on the map is
+two things to learn instead of one. A class takes its organization's colour, exactly as it does on
+the chart. Map labels use a darkened step of the same hue (`orgInk`), because the lighter tints —
+`#60a5fa` for the deacons — are unreadable at 11px over nothing but a white halo.
+
+*Zoom to fit* frames the whole group; *List* opens the homes as rows, and tapping one flies to it
+and opens the household.
+
+List rows read **Surname, Given name** in bold with the calling under it — surname first because
+these lists are scanned down for a family, and on two lines because callings like *Primary
+Activities - Boys 9 & 10 Specialist* do not share one. Any line the card is too narrow for gets a
+tooltip carrying the whole thing, and only then: a `title` on every line would mean hovering a
+perfectly readable name pops a box repeating it back.
+
+Two kinds of group are offered, because the ward's data supports two:
+
+- **Organizations** — everyone `person_orgs` places in an org. That table is written by the callings
+  import, so it is who *serves* in an org rather than who attends it: the ward has no roster of
+  attendance to draw on. A parent org rolls up its children, so Young Men includes the deacons
+  quorum adviser and lists him by that calling.
+- **Classes and groups** — the sub-headings LCR prints a calling under: *Valiant 9*, *Course 15*,
+  *Ministering*, *Relief Society Presidency*. This is as close to a class roster as the report gets.
+  They are labelled with the org they sit in, because half of them are called *Presidency* or
+  *Teachers* and name nothing on their own.
+
+Two things the highlight deliberately does not do. It does not repaint the homes — "which of these
+families is less active" is still a question you have while looking at a quorum, so the highlight is
+carried by the outline and the dimming instead of a second fill colour. And it overrides the legend
+filters: asking for the Primary and being handed nine of its twelve homes, because three are marked
+less-active and that key happens to be switched off, is a wrong answer given silently.
+
+Households with no parcel *and* no pin cannot be drawn at all. The card counts them — *3 not on the
+map* — rather than quietly shrinking the group.
+
+The whole index ships in one request from [`/api/orgs/groups`](src/app/api/orgs/groups/route.ts):
+a ward's rosters are a few hundred rows either side, which is smaller than one round trip's latency,
+so switching groups is instant on the sort of phone signal this app is used on. The grouping itself
+is pure ([src/lib/map-groups.ts](src/lib/map-groups.ts)) and covered by `npm run test:mapgroups`.
 
 ## Satellite
 

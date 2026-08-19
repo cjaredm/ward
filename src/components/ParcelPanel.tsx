@@ -1,18 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import HouseholdForm from '@/components/HouseholdForm'
+import { TAP, field, labelCls } from '@/components/form-styles'
 import {
-  HOUSEHOLD_STATUSES,
   PARCEL_USES,
-  STATUS_LABELS,
   USE_LABELS,
   categoryLabel,
   type Business,
   type Household,
-  type HouseholdStatus,
   type ParcelDetail,
   type ParcelUse,
-  type Person,
 } from '@/lib/types'
 
 /** What the panel is showing: a county parcel, or a household pinned to a point. */
@@ -28,13 +26,6 @@ function relativeTime(ts: number): string {
   if (mins < 60) return `${mins}m ago`
   return `${Math.floor(mins / 60)}h ago`
 }
-
-/** 16px on a phone: anything smaller is hard to read at arm's length outdoors. */
-const field =
-  'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-900 sm:py-2 sm:text-sm'
-const labelCls = 'block text-xs font-medium text-neutral-700'
-/** 44px minimum hit area on touch, compact again at `sm`. */
-const TAP = 'min-h-11 sm:min-h-0'
 
 export default function ParcelPanel({
   target,
@@ -242,10 +233,43 @@ export default function ParcelPanel({
     onChanged()
   }
 
+  /**
+   * Takes a household off its parcel and leaves it as a pin on the map.
+   *
+   * The mirror of dragging a pin onto a house: a family listed at the wrong
+   * address is separated from it without losing the names and notes on the
+   * record. The server puts the new pin on the parcel's centroid,
+   * so it comes to rest on the house it just left.
+   */
+  async function detachHousehold(id: string, name: string) {
+    if (
+      !confirm(
+        `Separate "${name}" from this property? The family stays on the map as a pin you can drag to the right house.`,
+      )
+    )
+      return
+    setSave({ status: 'saving' })
+    const res = await fetch(`/api/households/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parcel_id: null }),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      setSave({ status: 'error', message: body?.error ?? 'Could not separate that household.' })
+      return
+    }
+    setSave({ status: 'saved', at: Date.now() })
+    onChanged()
+    // The household is no longer part of this parcel, so the panel's current
+    // view of it is stale either way; close and let the pin speak for itself.
+    onClose()
+  }
+
   async function deleteHousehold(id: string, name: string) {
     if (
       !confirm(
-        `Delete "${name}"? This permanently removes the names, phone numbers and emails on this household.`,
+        `Delete "${name}"? This permanently removes the names and notes on this household.`,
       )
     )
       return
@@ -425,6 +449,12 @@ export default function ParcelPanel({
               if (isSheet) onClose()
             }}
             onDelete={() => deleteHousehold(household.id, household.family_name)}
+            // Only a parcel-backed household has a property to be separated from.
+            onDetach={
+              target.kind === 'parcel'
+                ? () => detachHousehold(household.id, household.family_name)
+                : undefined
+            }
             onAddHousehold={addHousehold}
           />
         )}
@@ -529,309 +559,6 @@ function BusinessList({
       >
         Add business
       </button>
-    </div>
-  )
-}
-
-function HouseholdForm({
-  household,
-  showAddress,
-  canAddHousehold,
-  saving,
-  onLocalChange,
-  onCommit,
-  onSaved,
-  onDelete,
-  onAddHousehold,
-}: {
-  household: Household
-  showAddress: boolean
-  canAddHousehold: boolean
-  saving: boolean
-  onLocalChange: (p: Partial<Household>) => void
-  onCommit: (body: Record<string, unknown>) => Promise<boolean>
-  onSaved: () => void
-  onDelete: () => void
-  onAddHousehold: () => void
-}) {
-  /**
-   * Every field is controlled so Save can send the form as it stands.
-   *
-   * Previously Notes and Address only reached the server through their own blur
-   * handler, so Save wrote a body that did not contain them — and tapping Save
-   * straight from the notes box raced its own blur. Remounted per household by
-   * the `key` on this component, so these initialisers re-run on switch.
-   */
-  const [familyName, setFamilyName] = useState(household.family_name)
-  const [address, setAddress] = useState(household.address ?? '')
-  const [status, setStatus] = useState<HouseholdStatus>(household.status)
-  const [notes, setNotes] = useState(household.notes ?? '')
-  const [people, setPeople] = useState<Person[]>(household.people)
-  /** Set by any edit, cleared by any write — see commitIfDirty. */
-  const dirty = useRef(false)
-
-  /** The whole household, in the shape PATCH /api/households/:id expects. */
-  const fullBody = useCallback(
-    (nextPeople: Person[] = people): Record<string, unknown> => ({
-      // A blank name would fail validation and lose the rest of the edit with it.
-      family_name: familyName.trim() || household.family_name,
-      status,
-      notes: notes.trim() || null,
-      ...(showAddress ? { address: address.trim() || null } : {}),
-      // A person with no name yet is a half-typed row, not a deletion.
-      people: nextPeople
-        .filter((p) => p.full_name.trim())
-        .map((p) => ({
-          ...(p.id.startsWith('new:') ? {} : { id: p.id }),
-          full_name: p.full_name.trim(),
-          role: p.role?.trim() || null,
-          phone: p.phone?.trim() || null,
-          email: p.email?.trim() || null,
-        })),
-    }),
-    [familyName, address, status, notes, people, showAddress, household.family_name],
-  )
-
-  /**
-   * Autosave. Still sends the complete household rather than the one field that
-   * changed: a phone in a parking lot drops requests, and a full body means the
-   * next successful write repairs whatever the last one lost.
-   */
-  const commit = useCallback(
-    (nextPeople?: Person[]) => {
-      dirty.current = false
-      void onCommit(fullBody(nextPeople))
-    },
-    [onCommit, fullBody],
-  )
-
-  /** Blurring an untouched field should not fire a PATCH. */
-  const commitIfDirty = useCallback(() => {
-    if (dirty.current) commit()
-  }, [commit])
-
-  function commitPeople(next: Person[]) {
-    setPeople(next)
-    commit(next)
-  }
-
-  function editPerson(i: number, patch: Partial<Person>) {
-    dirty.current = true
-    setPeople((prev) => prev.map((q, j) => (j === i ? { ...q, ...patch } : q)))
-  }
-
-  return (
-    <div className="space-y-4 px-4 py-4">
-      <div>
-        <label className={labelCls} htmlFor="family_name">
-          Family name
-        </label>
-        <input
-          id="family_name"
-          className={field}
-          value={familyName}
-          onChange={(e) => {
-            dirty.current = true
-            setFamilyName(e.target.value)
-          }}
-          // Autosave on blur, plus the explicit Save button below.
-          onBlur={() => {
-            if (familyName.trim()) onLocalChange({ family_name: familyName.trim() })
-            commitIfDirty()
-          }}
-        />
-      </div>
-
-      {/* Only pinned households need a typed address; parcels carry the county one. */}
-      {showAddress && (
-        <div>
-          <label className={labelCls} htmlFor="address">
-            Address
-          </label>
-          <input
-            id="address"
-            className={field}
-            placeholder="Street address"
-            value={address}
-            onChange={(e) => {
-              dirty.current = true
-              setAddress(e.target.value)
-            }}
-            onBlur={commitIfDirty}
-          />
-        </div>
-      )}
-
-      <div>
-        <label className={labelCls} htmlFor="status">
-          Status
-        </label>
-        <select
-          id="status"
-          className={field}
-          value={status}
-          onChange={(e) => {
-            const v = e.target.value as HouseholdStatus
-            setStatus(v)
-            onLocalChange({ status: v })
-            // Sent from the event value: `status` is one render behind here.
-            dirty.current = false
-            void onCommit({ ...fullBody(), status: v })
-          }}
-        >
-          {HOUSEHOLD_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className={labelCls} htmlFor="notes">
-          Notes
-        </label>
-        <textarea
-          id="notes"
-          rows={3}
-          className={field}
-          value={notes}
-          onChange={(e) => {
-            dirty.current = true
-            setNotes(e.target.value)
-          }}
-          onBlur={commitIfDirty}
-        />
-      </div>
-
-      <section>
-        <h3 className="text-xs font-semibold text-neutral-900">People</h3>
-        <ul className="mt-2 space-y-3">
-          {people.map((p, i) => (
-            <li key={p.id} className="rounded-md border border-neutral-200 p-2.5">
-              <div className="flex gap-2">
-                <input
-                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
-                  placeholder="Full name"
-                  value={p.full_name}
-                  onChange={(e) => editPerson(i, { full_name: e.target.value })}
-                  onBlur={commitIfDirty}
-                />
-                <input
-                  className={`w-24 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
-                  placeholder="Role"
-                  value={p.role ?? ''}
-                  onChange={(e) => editPerson(i, { role: e.target.value || null })}
-                  onBlur={commitIfDirty}
-                />
-              </div>
-              {/* Stacked on a phone: side by side, neither field shows enough of
-                  a phone number or an email to check it. */}
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                <input
-                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
-                  placeholder="Phone"
-                  type="tel"
-                  inputMode="tel"
-                  value={p.phone ?? ''}
-                  onChange={(e) => editPerson(i, { phone: e.target.value || null })}
-                  onBlur={commitIfDirty}
-                />
-                <input
-                  className={`min-w-0 flex-1 rounded border border-neutral-300 px-2 py-2.5 text-base sm:py-1.5 sm:text-sm ${TAP}`}
-                  placeholder="Email"
-                  type="email"
-                  inputMode="email"
-                  value={p.email ?? ''}
-                  onChange={(e) => editPerson(i, { email: e.target.value || null })}
-                  onBlur={commitIfDirty}
-                />
-              </div>
-              {/* Call and text are the whole point of this record on a phone, so
-                  they get real buttons rather than inline links. */}
-              <div className="mt-2 flex items-center gap-2 text-xs">
-                {p.phone && (
-                  <>
-                    <a
-                      href={`tel:${p.phone}`}
-                      className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700"
-                    >
-                      Call
-                    </a>
-                    <a
-                      href={`sms:${p.phone}`}
-                      className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700 sm:hidden"
-                    >
-                      Text
-                    </a>
-                  </>
-                )}
-                {p.email && (
-                  <a
-                    href={`mailto:${p.email}`}
-                    className="flex min-h-9 items-center rounded-md border border-blue-200 bg-blue-50 px-3 font-medium text-blue-700"
-                  >
-                    Email
-                  </a>
-                )}
-                <button
-                  onClick={() => commitPeople(people.filter((_, j) => j !== i))}
-                  className="ml-auto min-h-9 px-1 text-neutral-500 underline underline-offset-2"
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-        <button
-          onClick={() =>
-            setPeople([
-              ...people,
-              {
-                id: `new:${people.length}:${Date.now()}`,
-                full_name: '',
-                role: null,
-                phone: null,
-                email: null,
-                sort_order: people.length,
-              },
-            ])
-          }
-          className={`mt-2 rounded-md border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-800 ${TAP}`}
-        >
-          Add person
-        </button>
-      </section>
-
-      <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 pt-4">
-        <button
-          disabled={saving}
-          // Writes the form exactly as it stands, then hands back to the panel,
-          // which closes the sheet on a phone and leaves the side panel up.
-          onClick={async () => {
-            dirty.current = false
-            if (await onCommit(fullBody())) onSaved()
-          }}
-          className={`rounded-md bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50 ${TAP}`}
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {canAddHousehold && (
-          <button
-            onClick={onAddHousehold}
-            className={`rounded-md border border-neutral-300 px-3 py-2.5 text-sm text-neutral-800 ${TAP}`}
-          >
-            Add household
-          </button>
-        )}
-        <button
-          onClick={onDelete}
-          className={`ml-auto rounded-md px-3 py-2.5 text-sm text-red-700 underline underline-offset-2 ${TAP}`}
-        >
-          Delete this household
-        </button>
-      </div>
     </div>
   )
 }

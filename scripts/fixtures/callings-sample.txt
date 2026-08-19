@@ -1,0 +1,70 @@
+# A cut-down "Organizations and Callings" report, in the shape LCR prints one.
+#
+# Every name here is invented. The real report is a list of members of the ward
+# and belongs in /data/, which is gitignored; this file is committed, so it
+# carries the awkward *shapes* — two-word surnames, middle names, custom
+# callings, vacancies, a class heading with a comma in it — and none of the
+# people.
+#
+# Feeds scripts/test-parse-callings.ts, which renders it into a real two-column
+# PDF and also feeds it in as plain text.
+Organizations and Callings Scenic Sunrise Ward (2241102)
+Washington Utah Long Valley Stake (2334356)
+Bishopric
+Calling Name
+Bishop Alder, Marcus
+Bishopric First Counselor Whitfield, Dana
+Ward Assistant Clerk Calling Vacant
+Ward Assistant Clerk--Membership Okonkwo, Tobi
+Count: 10
+Elders Quorum
+Elders Quorum Presidency
+Calling Name
+Elders Quorum President Brennan, Taylor
+Elders Quorum Assistant Secretary Calling Vacant
+Count: 5
+Service
+Calling Name
+* Ward Healing Trough the Savior Mentor Ramsey, Neil
+* custom calling
+Count: 4
+Relief Society
+Ministering
+Calling Name
+Relief Society Ministering Secretary Van Buren, Marta
+* Relief Society Birthday Specialist Delgado, Mary Elizabeth
+Service
+Calling Name
+Relief Society Service Coordinator Mc Alister, Crystal
+Aaronic Priesthood Quorums
+Presidency of the Aaronic Priesthood
+Calling Name
+Bishop Alder, Marcus
+Bishopric First Counselor Whitfield, Dana
+Teachers Quorum Presidency
+Calling Name
+Teachers Quorum President Prescott, Haven Tyler
+Deacons Quorum Adult Leaders
+Calling Name
+Deacons Quorum Adviser Ferrer, Bruce Adam
+Young Women
+Gatherers of Light Class Presidency
+Calling Name
+Gatherers of Light Class Second Counselor Jenson, ElizaJane
+Sunday School
+Course 15
+Calling Name
+Sunday School Teacher Corbin, James E
+Primary
+CTR 5, CTR 6
+Calling Name
+Primary Teacher Castellano, Manuel
+Primary Activities - Girls 7 & 8
+Calling Name
+Valiant Activities Leader DeWinter, Catherine Elizabeth
+Other Callings
+Facilities
+Calling Name
+Scheduler--Building 1 Osgood, Randy Morris
+* Ward Activity Committee Member Mcbride, Jennifer
+19 Aug 2026 For Church Use Only © 2026 by Intellectual Reserve, Inc. All rights reserved. 4

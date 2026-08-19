@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { sql } from '@/lib/db'
-import { requireSession } from '@/lib/auth'
+import { authErrorResponse, requireSession } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     await requireSession()
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const rows = (await sql`

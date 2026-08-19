@@ -1,0 +1,62 @@
+# A cut-down LCR "Member List", in the shape the real one comes in. Every name
+# is invented — the real report is a list of members and belongs in /data/,
+# which is gitignored.
+#
+# Indented lines are the address block for the name above them. A name with no
+# indented lines has no address on file, which the real report does print.
+#
+# Feeds scripts/test-parse-members.ts, which lays this out as a real two-column
+# PDF with the name set against the middle of its address, and splits it across
+# a page break to check that a member cut in half still parses.
+Alder, Marcus
+  1730 S Rio Virgin Dr
+  Washington UT 84780-8231
+Alder, Cheyenne Rae
+  1730 S Rio Virgin Dr
+  Washington UT 84780-8231
+Brennan, Taylor
+  1201 E BLACK BRUSH DR
+  WASHINGTON UT 84780-3153
+Corbin, James E
+  1612 S. Aspen Way
+  Washington UT 84780
+Delgado, Mary Elizabeth
+  1445 E Mesa View Ln
+  Washington UT 84780-2382
+DeWinter, Catherine Elizabeth
+  1564 S Amity Ln
+  Washington UT 84780-8370
+Ferrer, Bruce Adam
+  1564 South Aspen Way
+  Ripple Rd
+  Washington UT 84780-2297
+Jenson, ElizaJane
+  1443 E Scenic Sunrise Dr
+  Washington UT 84780-2293
+Kittredge, Marisol Ann
+  1654 S Amity Ln
+  Washington UT 84780-8371
+Mc Alister, Crystal
+  1808 S Pleiades Way
+  Washington UT 84780-3183
+Okonkwo, Tobi
+  PO Box 7001
+  Longview TX 75607-7001
+Osgood, Randy Morris
+  1592 rio virgin dr
+  Washington UT 84780
+Prescott, Haven Tyler
+Prescott, Jordis
+Prescott, Alexia
+Ramsey, Neil
+  1649 S Aspen Way
+  Washington UT
+Van Buren, Marta
+  1932 S Pleiades Way
+  Washington UT 84780-3739
+Whitfield, Dana
+  1676 S Painted Vista Cir
+  Washington UT 84780-3179
+mcbride, Jennifer
+  1276 E Libra St
+  Washington UT 84780

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { requireSession } from '@/lib/auth'
+import { authErrorResponse, requireSession } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
@@ -29,8 +29,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   let actor: string
   try {
     actor = (await requireSession()).name
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const { id } = await ctx.params
@@ -76,8 +76,8 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   let actor: string
   try {
     actor = (await requireSession()).name
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const { id } = await ctx.params

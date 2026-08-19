@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const router = useRouter()
-  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -18,19 +18,17 @@ export default function LoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, password }),
+        body: JSON.stringify({ email, password }),
       })
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null
         setError(body?.error ?? 'Sign in failed.')
         return
       }
-      try {
-        localStorage.setItem('ward:name', name)
-      } catch {
-        // private browsing — the JWT already carries the name, this is only a convenience
-      }
-      router.replace('/')
+      const payload = (await res.json().catch(() => null)) as { mustChangePassword?: boolean } | null
+      // A temporary password never gets to browse the app; the (app) layout
+      // would bounce them here anyway, this just skips the extra hop.
+      router.replace(payload?.mustChangePassword ? '/change-password' : '/')
       router.refresh()
     } catch {
       setError('Network error. Check your connection and try again.')
@@ -42,31 +40,27 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-neutral-50 p-6">
       <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-semibold text-neutral-900">Ward Map</h1>
-        <p className="mt-1 text-sm text-neutral-600">Sign in to continue.</p>
+        <h1 className="text-2xl font-semibold text-neutral-900">Sign in to continue.</h1>
 
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-neutral-800">
-              Your name
+            <label htmlFor="email" className="block text-sm font-medium text-neutral-800">
+              Email
             </label>
             <input
-              id="name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="name"
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
-              minLength={2}
               className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-base text-neutral-900 outline-none focus:border-neutral-900"
             />
-            <p className="mt-1 text-xs text-neutral-500">
-              Recorded with your edits so the ward can see who changed what. It is not a password.
-            </p>
           </div>
 
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-neutral-800">
-              Ward password
+              Password
             </label>
             <input
               id="password"
@@ -93,23 +87,6 @@ export default function LoginPage() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <section className="mt-8 rounded-md border border-neutral-200 bg-white p-4 text-xs leading-relaxed text-neutral-600">
-          <h2 className="text-xs font-semibold text-neutral-900">About your information</h2>
-          <p className="mt-2">
-            This map stores household names, home addresses, phone numbers and email addresses for
-            members of this ward, including minors. Parcel boundaries and street addresses come from
-            public Washington County records; everything else is entered by hand by ward leaders.
-          </p>
-          <p className="mt-2">
-            Only people with this password can see it. It is never indexed by search engines, never
-            shared publicly, and is not connected to any Church system.
-          </p>
-          <p className="mt-2">
-            To have your household removed, ask any member of the ward council — removal is
-            immediate and permanent.
-          </p>
-        </section>
       </div>
     </main>
   )

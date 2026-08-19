@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { requireSession } from '@/lib/auth'
+import { authErrorResponse, requireSession } from '@/lib/auth'
 import { PARCEL_USES } from '@/lib/types'
 
 export const runtime = 'nodejs'
@@ -32,8 +32,8 @@ export async function POST(req: NextRequest) {
   let actor: string
   try {
     actor = (await requireSession()).name
-  } catch {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  } catch (err) {
+    return authErrorResponse(err)
   }
 
   const parsed = Body.safeParse(await req.json().catch(() => null))
