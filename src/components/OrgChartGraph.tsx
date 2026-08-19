@@ -14,10 +14,13 @@ const TEXT_X = 48
 /**
  * Where the drawing starts, in frame pixels.
  *
- * The mode switch and the zoom controls float over the corners of the canvas, so
- * the chart is offset clear of them rather than opening underneath them — at the
+ * The mode switch and the zoom controls float over the top of the canvas, so the
+ * chart is offset clear of them rather than opening underneath them — at the
  * default position the bishopric is the first thing read, and a button parked on
  * top of the bishop is the one thing that must not happen.
+ *
+ * PAD_TOP is only the floor: on a phone the controls wrap onto two or three
+ * rows, so the real offset is measured off the toolbar every time it is needed.
  */
 const PAD_LEFT = 24
 const PAD_TOP = 60
@@ -58,6 +61,7 @@ export default function OrgChartGraph({
   const [view, setView] = useState({ x: 0, y: 0, k: 1 })
   const [selected, setSelected] = useState<string | null>(null)
   const frame = useRef<HTMLDivElement>(null)
+  const toolbar = useRef<HTMLDivElement>(null)
   /** Active pointers, so one finger pans and two pinch. */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const pinch = useRef<{ distance: number; k: number } | null>(null)
@@ -67,30 +71,52 @@ export default function OrgChartGraph({
     [roots, collapsed],
   )
 
+  /**
+   * How far down the drawing has to start to clear the controls. Read off the
+   * DOM rather than stored, because the number depends on how many rows the
+   * buttons wrapped onto — two or three of them at phone width, one on a laptop.
+   */
+  const topPad = useCallback(() => {
+    const bar = toolbar.current?.offsetHeight ?? 0
+    // 12px is the top-3 the toolbar is pinned at, and the same gap again under it.
+    return Math.max(PAD_TOP, bar + 24)
+  }, [])
+
   /** Scale and offset that fit the whole chart in the frame. */
   const fit = useCallback(() => {
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
+    const top = topPad()
     const k = Math.min(
       (box.width - PAD_LEFT - PAD_RIGHT) / width,
-      (box.height - PAD_TOP - PAD_BOTTOM) / height,
+      (box.height - top - PAD_BOTTOM) / height,
       1,
     )
-    setView({ x: PAD_LEFT, y: PAD_TOP, k })
-  }, [width, height])
+    setView({ x: PAD_LEFT, y: top, k })
+  }, [width, height, topPad])
 
   /**
    * The opening view: the chart at full size, top-left corner in the frame, which
-   * is where the bishopric block always is. Scaled down only if the chart is
-   * wider than the frame — a ward chart is far taller than a screen, and
-   * shrinking it to fit that height makes every name too small to read.
+   * is where the bishopric block always is.
+   *
+   * It scales to fit one organization block across, not the whole chart. A ward
+   * chart is several blocks wide and far taller than any screen; fitting its
+   * full width into a phone renders every name as a few grey pixels, which is
+   * what this page used to open as on a phone. Below that the chart is panned,
+   * which is what the frame is for.
    */
   const readable = useCallback(() => {
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
-    const k = Math.min(1, (box.width - PAD_LEFT - PAD_RIGHT) / width)
-    setView({ x: PAD_LEFT, y: PAD_TOP, k })
-  }, [width])
+    // Every block is laid out to the same width, and the leftmost sits one
+    // gutter in from the drawing's own origin. Scaling to that width, and then
+    // pulling the gutter back off the offset, lands the bishopric block flush
+    // in the frame at full size on a phone rather than 5px over the edge.
+    const blockW = clusters.length ? Math.max(...clusters.map((c) => c.w)) : NODE_W
+    const originX = clusters.length ? Math.min(...clusters.map((c) => c.x)) : 0
+    const k = Math.min(1, (box.width - PAD_LEFT - PAD_RIGHT) / blockW)
+    setView({ x: PAD_LEFT - originX * k, y: topPad(), k })
+  }, [clusters, topPad])
 
   useEffect(() => {
     readable()
@@ -123,6 +149,12 @@ export default function OrgChartGraph({
       // Keep the point under the cursor pinned while the scale changes.
       return { k, x: cx - ((cx - v.x) * k) / v.k, y: cy - ((cy - v.y) * k) / v.k }
     })
+  }
+
+  /** The middle of the frame, as the anchor the zoom buttons scale about. */
+  function centre(): [number, number] {
+    const box = frame.current?.getBoundingClientRect()
+    return box ? [box.width / 2, box.height / 2] : [200, 200]
   }
 
   function onWheel(e: React.WheelEvent) {
@@ -168,31 +200,48 @@ export default function OrgChartGraph({
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-white">
-      {modes && <div className="absolute top-3 left-3 z-10">{modes}</div>}
+      {/*
+        One bar holding both groups rather than two independently positioned
+        corners: pinned to opposite corners, the zoom group wrapped leftwards
+        underneath the mode switch on a phone and covered the List button.
+        Measured for the drawing's top offset, so a wrapped bar pushes the chart
+        down instead of sitting on top of the bishopric.
+      */}
+      <div
+        ref={toolbar}
+        className="pointer-events-none absolute top-3 right-3 left-3 z-10 flex items-start justify-between gap-2"
+      >
+        {modes && <div className="pointer-events-auto">{modes}</div>}
 
-      <div className="absolute top-3 right-3 z-10 flex flex-wrap justify-end gap-1.5 text-xs">
-        {[
-          { label: '−', title: 'Zoom out', run: () => zoomAt(0.8, 200, 200) },
-          { label: '+', title: 'Zoom in', run: () => zoomAt(1.25, 200, 200) },
-          { label: '100%', title: 'Full size, top of the chart', run: readable },
-          { label: 'Fit', title: 'Shrink the whole chart into view', run: fit },
-          { label: 'Expand all', title: 'Show every calling', run: expandAll },
-          {
-            label: 'Presidencies',
-            title: 'Fold every organization down to its presidency',
-            run: collapseAll,
-          },
-        ].map((b) => (
-          <button
-            key={b.label}
-            type="button"
-            title={b.title}
-            onClick={b.run}
-            className="min-w-9 rounded-md border border-neutral-300 bg-white px-2 py-1.5 font-medium text-neutral-700 shadow-sm hover:border-neutral-900"
-          >
-            {b.label}
-          </button>
-        ))}
+        <div className="pointer-events-auto flex flex-wrap justify-end gap-1.5 text-xs">
+          {[
+            { label: '−', title: 'Zoom out', run: () => zoomAt(0.8, ...centre()) },
+            { label: '+', title: 'Zoom in', run: () => zoomAt(1.25, ...centre()) },
+            { label: '100%', title: 'Full size, top of the chart', run: readable },
+            { label: 'Fit', title: 'Shrink the whole chart into view', run: fit },
+            // Short labels below sm: six full-width buttons plus the mode switch
+            // wrap onto three rows on a phone, which is a third of the canvas.
+            { label: 'Expand all', short: 'All', title: 'Show every calling', run: expandAll },
+            {
+              label: 'Presidencies',
+              short: 'Pres.',
+              title: 'Fold every organization down to its presidency',
+              run: collapseAll,
+            },
+          ].map((b) => (
+            <button
+              key={b.label}
+              type="button"
+              title={b.title}
+              onClick={b.run}
+              // min-h-8 rather than padding alone: these are tapped with a thumb.
+              className="min-h-8 min-w-9 rounded-md border border-neutral-300 bg-white px-2 py-1.5 font-medium text-neutral-700 shadow-sm hover:border-neutral-900"
+            >
+              <span className="sm:hidden">{b.short ?? b.label}</span>
+              <span className="hidden sm:inline">{b.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div
@@ -399,7 +448,12 @@ export default function OrgChartGraph({
         </svg>
       </div>
 
-      <p className="pointer-events-none absolute bottom-2 left-3 text-xs text-neutral-400">
+      {/*
+        On a backdrop, not bare over the drawing: the chart is taller than any
+        frame, so panning down puts calling boxes directly behind this line and
+        the two read as one smudge.
+      */}
+      <p className="pointer-events-none absolute bottom-2 left-3 hidden rounded-md bg-white/85 px-2 py-1 text-xs text-neutral-400 backdrop-blur-sm sm:block">
         Drag to pan · scroll or pinch to zoom · tap a box to open or close what is under it
       </p>
     </div>
