@@ -13,16 +13,23 @@ const STORAGE_KEY = 'ward:org-chart-view'
 /**
  * The org chart, two ways.
  *
- * List is the reference: every organization, every calling, in the order LCR
- * printed them, readable on a phone and easy to scan for a vacancy. Chart is the
- * same data as a line of authority — who reports to whom — which is the question
- * a list cannot answer.
+ * Chart is what opens: the line of authority — who reports to whom — which is the
+ * question a list cannot answer, and it gets the whole screen under the header.
+ * List is the reference behind it: every organization, every calling, in the
+ * order LCR printed them, readable on a phone and easy to scan for a vacancy.
  *
  * The choice is remembered per browser: whichever one somebody uses, they use it
  * every time.
  */
-export default function OrgChartView({ rows }: { rows: CallingRecord[] }) {
-  const [view, setView] = useState<View>('list')
+export default function OrgChartView({
+  rows,
+  canSeeMap = false,
+}: {
+  rows: CallingRecord[]
+  /** Whether this person may open the ward map the chart's blocks link to. */
+  canSeeMap?: boolean
+}) {
+  const [view, setView] = useState<View>('chart')
 
   useEffect(() => {
     const saved = window.localStorage.getItem(STORAGE_KEY)
@@ -54,28 +61,36 @@ export default function OrgChartView({ rows }: { rows: CallingRecord[] }) {
     ),
   )
 
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-1 text-sm">
-        {(['list', 'chart'] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            onClick={() => choose(v)}
-            className={`rounded-md px-3 py-1.5 font-medium ${
-              view === v
-                ? 'bg-neutral-900 text-white'
-                : 'border border-neutral-300 bg-white text-neutral-700'
-            }`}
-          >
-            {v === 'list' ? 'List' : 'Chart'}
-          </button>
-        ))}
-      </div>
+  /**
+   * The mode switch. In chart mode it is laid over the top-left corner of the
+   * chart itself, so nothing above the drawing costs vertical space.
+   */
+  const modes = (
+    <div className="flex gap-1 text-sm">
+      {(['chart', 'list'] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => choose(v)}
+          className={`rounded-md px-3 py-1.5 font-medium ${
+            view === v
+              ? 'bg-neutral-900 text-white shadow-sm'
+              : 'border border-neutral-300 bg-white text-neutral-700 shadow-sm'
+          }`}
+        >
+          {v === 'list' ? 'List' : 'Chart'}
+        </button>
+      ))}
+    </div>
+  )
 
-      {view === 'chart' ? (
-        <OrgChartGraph roots={roots} />
-      ) : (
+  if (view === 'chart')
+    return <OrgChartGraph roots={roots} modes={modes} canSeeMap={canSeeMap} />
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-4 px-6 py-6">
+        {modes}
         <div className="space-y-6">
           {sections.map((section) => {
             const orgRows = byOrg.get(section.key) ?? []
@@ -165,7 +180,7 @@ export default function OrgChartView({ rows }: { rows: CallingRecord[] }) {
             )
           })}
         </div>
-      )}
+      </div>
     </div>
   )
 }

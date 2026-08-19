@@ -97,7 +97,17 @@ type GroupHome = {
   people: { personId: string; name: string; callings: string[]; via: MapGroupMember['via'] }[]
 }
 
-export default function WardMap({ actorName }: { actorName: string }) {
+export default function WardMap({
+  actorName,
+  initialGroupKey = null,
+}: {
+  actorName: string
+  /**
+   * An organization to open highlighted, from the org chart's per-block link.
+   * The camera frames it once its members have loaded — see `framedInitial`.
+   */
+  initialGroupKey?: string | null
+}) {
   const mapRef = useRef<MapRef>(null)
   const [parcels, setParcels] = useState<ParcelCollection>(EMPTY)
   const [boundary, setBoundary] = useState<Boundary | null>(null)
@@ -176,8 +186,16 @@ export default function WardMap({ actorName }: { actorName: string }) {
    * card that covers the map.
    */
   const [groups, setGroups] = useState<MapGroup[]>([])
-  const [groupKey, setGroupKey] = useState<string | null>(null)
+  const [groupKey, setGroupKey] = useState<string | null>(initialGroupKey)
   const [groupOpen, setGroupOpen] = useState(false)
+  /**
+   * Whether the org arriving in the URL has had its turn with the camera.
+   *
+   * The groups are fetched after mount, so a highlight from a link has no homes
+   * to frame on the first render — and once framed it must not be framed again,
+   * or every later edit to a parcel would yank the camera back.
+   */
+  const framedInitial = useRef(!initialGroupKey)
 
   useEffect(() => {
     const isCoarse = window.matchMedia('(pointer: coarse)').matches
@@ -734,6 +752,27 @@ export default function WardMap({ actorName }: { actorName: string }) {
     // level, where the neighbouring houses that say *where* this is are off screen.
     if (bounds) mapRef.current?.fitBounds(bounds, { padding: 60, duration: 600, maxZoom: 17 })
   }, [groupBounds, groupHomes])
+
+  /**
+   * Frames an org that arrived in the URL, once — and only once its homes exist.
+   * `fitGroup` is otherwise always somebody pressing a button.
+   */
+  useEffect(() => {
+    if (framedInitial.current) return
+    if (groupHomes.pids.length === 0 && groupHomes.hids.length === 0) return
+    framedInitial.current = true
+    fitGroup()
+  }, [fitGroup, groupHomes])
+
+  /**
+   * A linked org nobody in the ward records actually belongs to yet is dropped
+   * rather than left selected: the picker would read as a highlight that is on
+   * while the map shows nothing highlighted.
+   */
+  useEffect(() => {
+    if (groups.length === 0 || !groupKey) return
+    if (!groups.some((g) => g.key === groupKey)) setGroupKey(null)
+  }, [groups, groupKey])
 
   /** Opens one home from the member list, and takes the map to it. */
   const focusHome = useCallback(

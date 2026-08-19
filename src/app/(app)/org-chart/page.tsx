@@ -10,11 +10,15 @@ import TopNav from '@/components/TopNav'
 export const dynamic = 'force-dynamic'
 
 /**
- * The ward org chart, as a list or as a line of authority.
+ * The ward org chart, as a line of authority or as a list.
  *
  * Rows are read in report order, which is what makes a presidency read as a
  * presidency rather than as four people sorted alphabetically. Vacant callings
  * are included, not hidden: the openings are the point of the page.
+ *
+ * The page is a fixed-height shell rather than a scrolling document: the chart
+ * takes every pixel under the header and pans inside itself, and the list gets
+ * the scrollbar instead.
  */
 export default async function OrgChartPage() {
   const user = await currentUser()
@@ -34,9 +38,9 @@ export default async function OrgChartPage() {
   const unlinked = rows.filter((r) => !r.full_name && r.printed_name).length
 
   return (
-    <main className="min-h-dvh bg-neutral-50">
-      <header className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-6 py-4">
+    <main className="flex h-dvh flex-col overflow-hidden bg-neutral-50">
+      <header className="shrink-0 border-b border-neutral-200 bg-white">
+        <div className="flex w-full items-center justify-between gap-3 px-6 py-4">
           <div>
             <h1 className="text-lg font-semibold text-neutral-900">Org chart</h1>
             <p className="text-sm text-neutral-500">
@@ -51,24 +55,26 @@ export default async function OrgChartPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-6 py-6">
+      <div className="min-h-0 flex-1">
         {rows.length === 0 ? (
-          <p className="rounded-lg border border-neutral-200 bg-white p-6 text-sm text-neutral-600">
-            No callings recorded yet.{' '}
-            {user.is_admin ? (
-              <>
-                Upload the LCR callings report on the{' '}
-                <Link href="/admin/import" className="underline underline-offset-2">
-                  import page
-                </Link>
-                .
-              </>
-            ) : (
-              'Ask an admin to import the callings report.'
-            )}
-          </p>
+          <div className="mx-auto max-w-6xl px-6 py-6">
+            <p className="rounded-lg border border-neutral-200 bg-white p-6 text-sm text-neutral-600">
+              No callings recorded yet.{' '}
+              {user.is_admin ? (
+                <>
+                  Upload the LCR callings report on the{' '}
+                  <Link href="/admin/import" className="underline underline-offset-2">
+                    import page
+                  </Link>
+                  .
+                </>
+              ) : (
+                'Ask an admin to import the callings report.'
+              )}
+            </p>
+          </div>
         ) : (
-          <OrgChartView rows={rows} />
+          <OrgChartView rows={rows} canSeeMap={canSee(user, 'map')} />
         )}
       </div>
     </main>

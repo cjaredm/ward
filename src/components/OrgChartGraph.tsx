@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NODE_H, NODE_W, layout, orgsIn, type Collapse } from '@/lib/org-layout'
 import { orgLabel, orgTint as tint } from '@/lib/orgs'
@@ -10,12 +11,40 @@ import { SvgAvatar } from './Avatar'
 const AVATAR = 30
 const TEXT_X = 48
 
+/**
+ * Where the drawing starts, in frame pixels.
+ *
+ * The mode switch and the zoom controls float over the corners of the canvas, so
+ * the chart is offset clear of them rather than opening underneath them — at the
+ * default position the bishopric is the first thing read, and a button parked on
+ * top of the bishop is the one thing that must not happen.
+ */
+const PAD_LEFT = 24
+const PAD_TOP = 60
+const PAD_RIGHT = 24
+const PAD_BOTTOM = 32
+
+/** The "show on map" pill in an organization's header strip. */
+const MAP_BTN_W = 62
+const MAP_BTN_H = 20
+
 /** Rough character budget for the box width at each font size. */
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 }
 
-export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
+export default function OrgChartGraph({
+  roots,
+  modes,
+  canSeeMap = false,
+}: {
+  roots: TreeNode[]
+  /** The list/chart switch, floated over the top-left corner of the drawing. */
+  modes?: React.ReactNode
+  /** Whether to offer the per-organization link through to the ward map. */
+  canSeeMap?: boolean
+}) {
+  const router = useRouter()
   /**
    * The opening state: every organization folded down to its presidency, except
    * the bishopric, which is small enough to show whole. That is the view somebody
@@ -42,8 +71,12 @@ export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
   const fit = useCallback(() => {
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
-    const k = Math.min(box.width / (width + 80), box.height / (height + 80), 1)
-    setView({ x: 24, y: 24, k })
+    const k = Math.min(
+      (box.width - PAD_LEFT - PAD_RIGHT) / width,
+      (box.height - PAD_TOP - PAD_BOTTOM) / height,
+      1,
+    )
+    setView({ x: PAD_LEFT, y: PAD_TOP, k })
   }, [width, height])
 
   /**
@@ -55,8 +88,8 @@ export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
   const readable = useCallback(() => {
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
-    const k = Math.min(1, box.width / (width + 48))
-    setView({ x: 24, y: 24, k })
+    const k = Math.min(1, (box.width - PAD_LEFT - PAD_RIGHT) / width)
+    setView({ x: PAD_LEFT, y: PAD_TOP, k })
   }, [width])
 
   useEffect(() => {
@@ -134,7 +167,9 @@ export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
   const collapseAll = () => setCollapsed({ orgs: new Set(orgsIn(roots)), nodes: new Set() })
 
   return (
-    <div className="relative h-[calc(100dvh-13rem)] min-h-96 overflow-hidden rounded-lg border border-neutral-200 bg-white">
+    <div className="relative h-full w-full overflow-hidden bg-white">
+      {modes && <div className="absolute top-3 left-3 z-10">{modes}</div>}
+
       <div className="absolute top-3 right-3 z-10 flex flex-wrap justify-end gap-1.5 text-xs">
         {[
           { label: '−', title: 'Zoom out', run: () => zoomAt(0.8, 200, 200) },
@@ -199,6 +234,43 @@ export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
                   >
                     {orgLabel(c.key).toUpperCase()}
                   </text>
+                  {/* Straight through to the map with this organization lit up:
+                      "who in here lives near whom" is the next question after
+                      reading a block, and it is a different page's answer. */}
+                  {canSeeMap && (
+                    <g
+                      transform={`translate(${c.x + c.w - 16 - MAP_BTN_W} ${c.y + 6})`}
+                      className="cursor-pointer"
+                      // Stops a drag starting on the pill, so panning the chart
+                      // never ends in an accidental navigation.
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        router.push(`/map?org=${encodeURIComponent(c.key)}`)
+                      }}
+                    >
+                      <title>{`Show ${orgLabel(c.key)} on the ward map`}</title>
+                      <rect
+                        width={MAP_BTN_W}
+                        height={MAP_BTN_H}
+                        rx={10}
+                        fill="#ffffff"
+                        fillOpacity={0.9}
+                        stroke={tint(c.key)}
+                        strokeOpacity={0.5}
+                      />
+                      <text
+                        x={MAP_BTN_W / 2}
+                        y={14}
+                        fontSize={10}
+                        fontWeight={600}
+                        textAnchor="middle"
+                        fill={tint(c.key)}
+                      >
+                        Map ↗
+                      </text>
+                    </g>
+                  )}
                 </g>
               )
             })}
@@ -238,6 +310,14 @@ export default function OrgChartGraph({ roots }: { roots: TreeNode[] }) {
                   }}
                   className="cursor-pointer"
                 >
+                  {/* The full text, unclipped. Both lines are trimmed to fit the
+                      box, so without this a long calling — "Relief Society
+                      Ministering Secretary" — is unreadable at any zoom. */}
+                  <title>
+                    {isGroup
+                      ? `${p.node.title} · ${p.node.children.length} callings`
+                      : `${p.node.person ?? 'Vacant'} — ${p.node.title}`}
+                  </title>
                   <rect
                     width={NODE_W}
                     height={NODE_H}
