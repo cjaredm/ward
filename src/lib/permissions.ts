@@ -1,12 +1,23 @@
 /**
- * The app's sections, and who may see them.
+ * The app's sections, and who may see them — and, where a section has one, who
+ * may change what is in it.
  *
  * This list is the single source of truth for three things at once: the cards
  * on the dashboard, the checkboxes on the admin user form, and the server-side
  * gate on each section's page. Adding a section means adding one entry here and
  * one route — nothing else has to learn about it.
  *
- * Admins are not listed against sections; they bypass the check entirely.
+ * `editKey`, where present, is a second permission held *in the same array* as
+ * the section keys. A separate column was the alternative and it is worse: every
+ * read of a user would grow a join or a second array to keep in step, and the
+ * admin form already renders whatever this list says. The keys cannot collide
+ * with section keys because a section key is a bare noun and these are suffixed.
+ *
+ * Only the building map has one so far. The ward map's own edit gate is the
+ * `map` section itself, which is what shipped and what its routes still check;
+ * splitting that is a migration of its own and not this change.
+ *
+ * Admins are not listed against sections; they bypass every check entirely.
  */
 export const SECTIONS = [
   {
@@ -37,6 +48,8 @@ export const SECTIONS = [
     description: 'Rooms in the stake center, and the classes meeting in each hour by hour.',
     href: '/building',
     icon: 'M4 21V6a1 1 0 011-1h6a1 1 0 011 1v15M12 21V10a1 1 0 011-1h6a1 1 0 011 1v11M3 21h18M7 9h2m-2 4h2m-2 4h2m7-4h2m-2 4h2',
+    editKey: 'building_edit',
+    editLabel: 'Building map — assign classes and fix rooms',
   },
 ] as const
 
@@ -44,14 +57,61 @@ export type SectionKey = (typeof SECTIONS)[number]['key']
 
 export const SECTION_KEYS: readonly string[] = SECTIONS.map((s) => s.key)
 
+/** The sections that have an edit permission of their own, for the admin form. */
+export const EDITABLE_SECTIONS = SECTIONS.filter(
+  (s): s is (typeof SECTIONS)[number] & { editKey: string; editLabel: string } => 'editKey' in s,
+)
+
+/** Everything a permissions array is allowed to contain. */
+export const PERMISSION_KEYS: readonly string[] = [
+  ...SECTION_KEYS,
+  ...EDITABLE_SECTIONS.map((s) => s.editKey),
+]
+
+type Actor = { is_admin: boolean; permissions: string[] }
+
 /** Admins see everything, including sections added after their account was made. */
-export function canSee(
-  user: { is_admin: boolean; permissions: string[] },
-  section: string,
-): boolean {
+export function canSee(user: Actor, section: string): boolean {
   return user.is_admin || user.permissions.includes(section)
 }
 
-export function visibleSections(user: { is_admin: boolean; permissions: string[] }) {
+/**
+ * May this person change what is in the section, rather than only read it?
+ *
+ * Seeing it is a precondition, checked here rather than trusted: an array that
+ * somehow holds `building_edit` without `building` grants nothing, so a bad
+ * write to the column cannot become an escalation.
+ *
+ * A section with no `editKey` has not split its permissions, and there being
+ * read on write would silently grant every viewer write access — so it answers
+ * with `canSee`, which is exactly the gate its routes already apply.
+ */
+export function canEdit(user: Actor, section: string): boolean {
+  if (user.is_admin) return true
+  const entry = SECTIONS.find((s) => s.key === section)
+  if (!entry) return false
+  if (!('editKey' in entry)) return canSee(user, section)
+  return user.permissions.includes(section) && user.permissions.includes(entry.editKey)
+}
+
+export function visibleSections(user: Actor) {
   return SECTIONS.filter((s) => canSee(user, s.key))
+}
+
+/**
+ * The permissions array as it is allowed to be stored: known keys only, no
+ * duplicates, and no edit permission for a section this person cannot open.
+ *
+ * Applied on the way in rather than only in the UI. The checkbox that turns a
+ * section off can drop its edit key on the client, but a PATCH sent by hand — or
+ * by an older build of the form — must not be able to leave the pair behind, or
+ * re-granting the section later would silently restore write access somebody
+ * thought they had removed.
+ */
+export function normalizePermissions(permissions: string[]): string[] {
+  const set = new Set(permissions.filter((p) => PERMISSION_KEYS.includes(p)))
+  for (const s of EDITABLE_SECTIONS) {
+    if (!set.has(s.key)) set.delete(s.editKey)
+  }
+  return PERMISSION_KEYS.filter((k) => set.has(k))
 }

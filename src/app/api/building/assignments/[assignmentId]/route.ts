@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { authErrorResponse, requireSection } from '@/lib/auth'
+import { authErrorResponse, requireSectionEdit } from '@/lib/auth'
 import { AssignmentTitle, Notes, OrgKey, Unit } from '../../schema'
 import { roomAvailableAt, warningsFor } from '@/lib/building-query'
 
@@ -33,7 +33,7 @@ export async function PATCH(
 ) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }
@@ -150,7 +150,7 @@ export async function DELETE(
 ) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }

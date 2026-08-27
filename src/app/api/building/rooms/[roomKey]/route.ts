@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { authErrorResponse, requireSection } from '@/lib/auth'
+import { authErrorResponse, requireSectionEdit } from '@/lib/auth'
 import { area, normalizeRing, type Pt } from '@/lib/floorplan-geom'
 import { Point, Ring, RoomName } from '../../schema'
 
@@ -41,7 +41,7 @@ type Row = {
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ roomKey: string }> }) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }
@@ -129,7 +129,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ roomKey: 
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ roomKey: string }> }) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }

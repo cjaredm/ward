@@ -15,7 +15,12 @@ type User = {
   created_at: string
 }
 
-type Section = { key: string; label: string }
+type Section = {
+  key: string
+  label: string
+  /** Present when the section separates reading it from changing it. */
+  editKey?: string
+}
 
 const INPUT =
   'w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900'
@@ -122,6 +127,66 @@ export default function UsersAdmin({
     return list.includes(key) ? list.filter((k) => k !== key) : [...list, key]
   }
 
+  /**
+   * Turning a section off takes its edit permission with it.
+   *
+   * Otherwise revoking a section and granting it again a month later silently
+   * restores write access that the admin believed they had removed. The server
+   * normalizes the same way, so a stale tab cannot store the pair half-set
+   * either.
+   */
+  function toggleSection(list: string[], section: Section): string[] {
+    if (!list.includes(section.key)) return [...list, section.key]
+    return list.filter((k) => k !== section.key && k !== section.editKey)
+  }
+
+  /** The section checkbox and, under it, "and change it" where that exists. */
+  function SectionChecks({
+    permissions,
+    isAdmin,
+    disabled = false,
+    onChange,
+  }: {
+    permissions: string[]
+    isAdmin: boolean
+    disabled?: boolean
+    onChange: (next: string[]) => void
+  }) {
+    return (
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {sections.map((s) => {
+          const canOpen = isAdmin || permissions.includes(s.key)
+          return (
+            <div key={s.key}>
+              <label className="flex items-center gap-2 text-sm text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={canOpen}
+                  disabled={isAdmin || disabled}
+                  onChange={() => onChange(toggleSection(permissions, s))}
+                />
+                {s.label}
+              </label>
+              {s.editKey && (
+                <label className="mt-1 ml-6 flex items-center gap-2 text-xs text-neutral-600">
+                  <input
+                    type="checkbox"
+                    checked={isAdmin || permissions.includes(s.editKey)}
+                    // Nothing to grant on a section they cannot open. The server
+                    // refuses the pair as well; this only stops it being asked for.
+                    disabled={isAdmin || disabled || !permissions.includes(s.key)}
+                    onChange={() => onChange(togglePermission(permissions, s.editKey!))}
+                  />
+                  and change it — assign classes, fix rooms
+                </label>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {error && (
@@ -162,29 +227,19 @@ export default function UsersAdmin({
 
           <fieldset className="mt-4">
             <legend className="text-sm font-medium text-neutral-800">Can open</legend>
-            <div className="mt-2 flex flex-wrap gap-3">
-              {sections.map((s) => (
-                <label key={s.key} className="flex items-center gap-2 text-sm text-neutral-700">
-                  <input
-                    type="checkbox"
-                    checked={draft.is_admin || draft.permissions.includes(s.key)}
-                    disabled={draft.is_admin}
-                    onChange={() =>
-                      setDraft({ ...draft, permissions: togglePermission(draft.permissions, s.key) })
-                    }
-                  />
-                  {s.label}
-                </label>
-              ))}
-              <label className="flex items-center gap-2 text-sm text-neutral-700">
-                <input
-                  type="checkbox"
-                  checked={draft.is_admin}
-                  onChange={(e) => setDraft({ ...draft, is_admin: e.target.checked })}
-                />
-                Admin (everything, including this page)
-              </label>
-            </div>
+            <SectionChecks
+              permissions={draft.permissions}
+              isAdmin={draft.is_admin}
+              onChange={(permissions) => setDraft({ ...draft, permissions })}
+            />
+            <label className="mt-3 flex items-center gap-2 text-sm text-neutral-700">
+              <input
+                type="checkbox"
+                checked={draft.is_admin}
+                onChange={(e) => setDraft({ ...draft, is_admin: e.target.checked })}
+              />
+              Admin (everything, including this page)
+            </label>
           </fieldset>
 
           <p className="mt-4 text-xs text-neutral-500">
@@ -310,25 +365,13 @@ export default function UsersAdmin({
 
                   <fieldset>
                     <legend className="text-sm font-medium text-neutral-800">Can open</legend>
-                    <div className="mt-2 flex flex-wrap gap-3">
-                      {sections.map((s) => (
-                        <label
-                          key={s.key}
-                          className="flex items-center gap-2 text-sm text-neutral-700"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={user.is_admin || user.permissions.includes(s.key)}
-                            disabled={user.is_admin || busy}
-                            onChange={() =>
-                              patch(user.id, {
-                                permissions: togglePermission(user.permissions, s.key),
-                              })
-                            }
-                          />
-                          {s.label}
-                        </label>
-                      ))}
+                    <SectionChecks
+                      permissions={user.permissions}
+                      isAdmin={user.is_admin}
+                      disabled={busy}
+                      onChange={(permissions) => patch(user.id, { permissions })}
+                    />
+                    <div className="mt-3">
                       <label className="flex items-center gap-2 text-sm text-neutral-700">
                         <input
                           type="checkbox"
@@ -387,7 +430,11 @@ export default function UsersAdmin({
                         ? 'No sections yet'
                         : sections
                             .filter((s) => user.permissions.includes(s.key))
-                            .map((s) => s.label)
+                            .map((s) =>
+                              s.editKey && user.permissions.includes(s.editKey)
+                                ? `${s.label} (can change)`
+                                : s.label,
+                            )
                             .join(', ')}
                   </p>
                   <button

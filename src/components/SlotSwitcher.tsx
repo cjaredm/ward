@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { slotLabel, slotTimes } from '@/lib/building'
 import type { MeetingSlot } from '@/lib/types'
-import { TAP, field, labelCls } from './form-styles'
+import { btnDanger, btnPrimary, btnQuiet, checkBox, checkRow, field, labelCls } from './form-styles'
+import MapCard from './MapCard'
 
 /**
  * Which hour the map is showing, and — for an admin — what the hours are.
@@ -34,28 +35,32 @@ export default function SlotSwitcher({
 }) {
   const [editing, setEditing] = useState(false)
   const active = slots.filter((s) => s.is_active)
+  const showing = active.find((s) => s.id === activeId)
 
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white/95 p-2 shadow-sm">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-[11px] font-medium tracking-[0.08em] text-neutral-500 uppercase">
-          Hour
-        </h2>
-        {isAdmin && (
+    <MapCard
+      title="Hour"
+      // Lives in the top bar, so it folds to a chip there and opens downwards.
+      dropdown
+      // Folded, the card still answers the only question it is asked most of the
+      // time: which hour am I looking at.
+      summary={showing ? slotLabel(showing) : 'None picked'}
+      action={
+        isAdmin && (
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
             aria-expanded={editing}
-            className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500 underline underline-offset-2 hover:text-neutral-900"
+            className="min-h-9 rounded px-1.5 text-[11px] text-neutral-500 underline underline-offset-2 hover:text-neutral-900"
           >
             {editing ? 'Done' : 'Edit hours'}
           </button>
-        )}
-      </div>
-
+        )
+      }
+    >
       {/* Scrolls sideways past four blocks rather than wrapping into a wall of
           pills that pushes the drawing down the screen. */}
-      <div className="mt-1.5 -mx-0.5 flex snap-x gap-1.5 overflow-x-auto px-0.5 pb-0.5">
+      <div className="-mx-0.5 flex snap-x gap-1.5 overflow-x-auto px-0.5 pb-0.5">
         {active.length === 0 && (
           <p className="px-1 py-1 text-[11px] text-neutral-500">No hours on the schedule.</p>
         )}
@@ -69,10 +74,10 @@ export default function SlotSwitcher({
               type="button"
               onClick={() => onPick(slot.id)}
               aria-pressed={on}
-              className={`${TAP} snap-start shrink-0 rounded-md px-2.5 py-1 text-left text-xs ${
+              className={`snap-start flex min-h-11 shrink-0 flex-col justify-center rounded-md px-3 text-left text-[13px] sm:min-h-9 ${
                 on
                   ? 'bg-blue-600 text-white'
-                  : 'border border-neutral-300 text-neutral-700 hover:bg-neutral-100'
+                  : 'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100'
               }`}
             >
               <span className="block font-medium">{label}</span>
@@ -104,7 +109,7 @@ export default function SlotSwitcher({
           </p>
         </div>
       )}
-    </div>
+    </MapCard>
   )
 }
 
@@ -171,22 +176,17 @@ function SlotRow({
         />
       </label>
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        <label className="flex items-center gap-1.5 text-[11px] text-neutral-700">
+        <label className={checkRow}>
           <input
             type="checkbox"
             checked={slot.is_active}
             disabled={busy}
             onChange={(e) => onUpdate({ is_active: e.target.checked })}
-            className="h-4 w-4"
+            className={checkBox}
           />
           Meeting this year
         </label>
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={busy}
-          className="text-[11px] text-red-700 underline underline-offset-2 disabled:opacity-40"
-        >
+        <button type="button" onClick={onDelete} disabled={busy} className={btnDanger}>
           Delete
         </button>
       </div>
@@ -211,7 +211,7 @@ function AddSlot({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`w-full rounded-md border border-dashed border-neutral-300 px-2 text-xs text-neutral-600 hover:border-neutral-500 ${TAP}`}
+        className={`${btnQuiet} w-full border-dashed text-neutral-600`}
       >
         + Add an hour
       </button>
@@ -249,15 +249,11 @@ function AddSlot({
             setOpen(false)
             setLabel('')
           }}
-          className={`flex-1 rounded-md bg-blue-600 px-2 text-xs font-medium text-white disabled:opacity-40 ${TAP}`}
+          className={`${btnPrimary} flex-1`}
         >
           Add
         </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className={`rounded-md border border-neutral-300 bg-white px-2 text-xs text-neutral-800 ${TAP}`}
-        >
+        <button type="button" onClick={() => setOpen(false)} className={btnQuiet}>
           Cancel
         </button>
       </div>

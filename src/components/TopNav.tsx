@@ -7,15 +7,17 @@ import { useEffect, useRef, useState } from 'react'
 export type NavLink = { href: string; label: string }
 
 /**
- * The header controls every signed-in page carries.
+ * The one control every signed-in page carries: Menu.
  *
- * One primary button — Dashboard, the way back to the list of everything — plus
- * a menu holding the rest: the other sections this person may open, the admin
- * tools, the password form, and sign out. Links were losing to the buttons
- * beside them at a glance, so everything here is a button-shaped target.
+ * Dashboard used to sit outside as a second button. It is inside now, at the top
+ * of the list, because two controls is two controls to fit on every page — and
+ * the building map wants that width for the drawing, not for a button that
+ * duplicates the first line of the menu it sits next to.
  *
- * The dashboard itself renders only the menu: a Dashboard button on the
- * dashboard points at the page you are already on.
+ * The menu hangs from the right edge and is scrollable. Both are load-bearing on
+ * a phone: a panel anchored left runs off the screen when the button is near the
+ * right edge, and a ward with every section granted plus the admin pages is
+ * taller than a phone held sideways.
  */
 export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: boolean }) {
   const pathname = usePathname()
@@ -40,8 +42,10 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
     }
   }, [open])
 
-  const onDashboard = pathname === '/'
   const items: NavLink[] = [
+    // First, and only when it is somewhere else: a Dashboard item on the
+    // dashboard points at the page you are already on.
+    ...(pathname === '/' ? [] : [{ href: '/', label: 'Dashboard' }]),
     ...links.filter((l) => l.href !== pathname),
     ...(isAdmin
       ? [
@@ -53,21 +57,12 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
 
   return (
     <div ref={wrap} className="relative flex shrink-0 items-center gap-2">
-      {!onDashboard && (
-        <Link
-          href="/"
-          className="inline-flex min-h-9 items-center rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-900 shadow-sm transition hover:border-neutral-900"
-        >
-          Dashboard
-        </Link>
-      )}
-
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-haspopup="menu"
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-900 shadow-sm transition hover:border-neutral-900"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-neutral-300 bg-white px-3 text-sm font-medium text-neutral-900 shadow-sm transition hover:border-neutral-900 sm:min-h-9"
       >
         Menu
         <span aria-hidden className={`text-[0.6rem] text-neutral-500 ${open ? 'rotate-180' : ''}`}>
@@ -78,7 +73,10 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
       {open && (
         <div
           role="menu"
-          className="absolute top-full right-0 z-30 mt-1 w-56 overflow-hidden rounded-lg border border-neutral-200 bg-white py-1 shadow-lg"
+          // Right-anchored, never wider than the viewport, and scrolling inside
+          // itself rather than off the bottom of the screen. `overscroll-contain`
+          // stops a flick at the end of the list panning the map underneath.
+          className="absolute top-full right-0 z-30 mt-1 max-h-[70dvh] w-56 max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-lg border border-neutral-200 bg-white py-1 shadow-lg"
         >
           {items.map((l) => (
             <Link
@@ -98,7 +96,7 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
             href="/change-password"
             role="menuitem"
             onClick={() => setOpen(false)}
-            className="block px-3 py-2.5 text-sm text-neutral-800 hover:bg-neutral-50"
+            className="flex min-h-11 items-center px-3 text-sm text-neutral-800 hover:bg-neutral-50"
           >
             Change password
           </Link>
@@ -116,7 +114,7 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
               // server payload the signed-in session rendered.
               location.href = '/login'
             }}
-            className="block w-full px-3 py-2.5 text-left text-sm text-neutral-800 hover:bg-neutral-50"
+            className="flex min-h-11 w-full items-center px-3 text-left text-sm text-neutral-800 hover:bg-neutral-50"
           >
             Sign out
           </button>

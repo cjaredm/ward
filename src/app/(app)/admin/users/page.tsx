@@ -32,7 +32,13 @@ export default async function UsersPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         <UsersAdmin
           initialUsers={await listUsers()}
-          sections={SECTIONS.map((s) => ({ key: s.key, label: s.label }))}
+          sections={SECTIONS.map((s) => ({
+            key: s.key,
+            label: s.label,
+            // Only the building map has one so far; the form renders whatever
+            // SECTIONS declares, so a second one needs no change here.
+            editKey: 'editKey' in s ? s.editKey : undefined,
+          }))}
           currentUserId={user.id}
         />
       </div>

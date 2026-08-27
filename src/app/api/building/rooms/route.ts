@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { authErrorResponse, requireSection } from '@/lib/auth'
+import { authErrorResponse, requireSectionEdit } from '@/lib/auth'
 import { slugifyRoomKey } from '@/lib/building'
 import { area, normalizeRing, type Pt } from '@/lib/floorplan-geom'
 import { Ring, RoomName } from '../schema'
@@ -27,7 +27,7 @@ const Body = z.object({
 export async function POST(req: NextRequest) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }

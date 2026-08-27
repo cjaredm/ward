@@ -456,8 +456,20 @@ npm run seed:building         # writes public/floorplan/stake-center.svg and the
 The seed derives two things from that one file: the wall drawing, written out as a static SVG the
 page loads as an `<image>`, and one row per room from the `<g id="rooms">` outlines. It is safe to
 re-run — rooms insert `ON CONFLICT DO NOTHING` and are never updated, so an outline you have
-corrected in the app is never reverted by a later seed. Access is per account: tick **Building map**
-on [/admin/users](src/app/(app)/admin/users) for anyone who should see it.
+corrected in the app is never reverted by a later seed.
+
+**Access is two permissions**, both per account on [/admin/users](src/app/(app)/admin/users):
+**Building map** to open it, and **and change it** underneath to assign classes, close a room for an
+hour, trace or reshape an outline, or delete a room. Read-only is the useful state rather than a
+degraded one — most of the ward wants to know which room a class is in, and two people should be
+moving classes around. Turning the section off takes its edit permission with it, on the client and
+again in the API, so re-granting the section a month later does not silently restore write access.
+The edit permission alone grants nothing.
+
+Enforced by `requireSectionEdit('building')` on every write handler and `canEdit` on the page, which
+is what decides whether the panel renders its forms; the hidden buttons are a courtesy, and the route
+check is the gate. `npm run test:permissions` covers both. Editing the *hours* stays admin-only — it
+changes the schedule for the whole ward, not one room.
 
 **Hours.** The blocks a Sunday is divided into are data, not code — an admin edits them from the
 Hour card on the map itself. Moving the 9:10 block to 9:15 keeps every class already assigned to it,
@@ -492,6 +504,30 @@ strings. The link is the `(org_key, unit)` pair
 the callings and roster imports already use, which is what will let a room show its roster and its
 teachers later; the name you typed stays what gets printed. Putting the same class in two rooms in
 one hour is allowed and warned about, not blocked.
+
+**The controls.** `/building` has no header band. A floorplan is wider than it is tall, so the empty
+paper is along the top, and everything floats there instead: the hour chip, the four tools, and the
+page's nav pinned to the right. Under the bar's left end sits the key, or the outline editor while
+tracing. Zoom is bottom-right, where a thumb is. Every card folds to its own title bar — the hour
+chip keeps saying which hour is showing, and the key folds away once it has been read — and both
+start folded on a screen under 600px tall, which is a phone held sideways. The key scrolls inside
+itself with the Hide button at the top, above the colours it applies to. The bar wraps on a phone,
+where all of it is about 440px and the screen is 375: `order` keeps the hour and the nav on the first
+line and drops the tools below them. The page title and its counts live behind the **About this map**
+button.
+
+**Dashboard is a menu item**, not a button of its own, on every page. Two controls is two controls to
+fit into every header, and the second one duplicated the first line of the menu beside it. The menu
+hangs from the right edge and scrolls: anchored left it runs off the side of a phone, and a ward with
+every section granted plus the admin pages is taller than a phone held sideways.
+
+Confirmations and the room-name prompt are the app's own dialog
+([src/components/Dialog.tsx](src/components/Dialog.tsx)) rather than `window.confirm` /
+`window.prompt`: the native ones print the hostname above the question on iOS, block repaints while
+open, and return null — indistinguishable from Cancel — once a browser has been told to suppress
+further dialogs. Buttons come from `btnPrimary` / `btnQuiet` / `btnDanger` /
+`btnSmall` in [src/components/form-styles.ts](src/components/form-styles.ts), which carry the 44px
+touch target, the padding and the type size together, rather than each call site remembering.
 
 **Tracing and fixing a room.** The trace tool works like the ward map's: tap each corner, then Save.
 Unlike the ward map, a saved outline can be *fixed* — open a room and press **Fix outline** to drag

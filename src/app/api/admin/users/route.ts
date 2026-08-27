@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
 import { authErrorResponse, requireAdmin } from '@/lib/auth'
-import { SECTION_KEYS } from '@/lib/permissions'
+import { PERMISSION_KEYS, normalizePermissions } from '@/lib/permissions'
 import { createUser, listUsers, normalizeEmail, TEMP_PASSWORD_MIN_LENGTH } from '@/lib/users'
 
 export const runtime = 'nodejs'
@@ -15,7 +15,12 @@ const Body = z.object({
   // held to the generated length rather than to the shorter human rules.
   password: z.string().min(TEMP_PASSWORD_MIN_LENGTH).max(200),
   is_admin: z.boolean().default(false),
-  permissions: z.array(z.enum(SECTION_KEYS as [string, ...string[]])).default([]),
+  // Normalized rather than merely validated: an edit permission without the
+  // section it edits is dropped here, so the pair cannot be stored half-set.
+  permissions: z
+    .array(z.enum(PERMISSION_KEYS as [string, ...string[]]))
+    .default([])
+    .transform(normalizePermissions),
 })
 
 export async function GET() {

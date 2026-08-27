@@ -24,11 +24,13 @@ import { orgInk, orgLabel } from '@/lib/orgs'
 import type { BuildingData, MeetingSlot, RoomAssignment } from '@/lib/types'
 import BuildingCanvas, { type CanvasHandle, type Draft } from './BuildingCanvas'
 import Clamped from './Clamped'
+import Dialog, { type DialogRequest } from './Dialog'
+import MapCard from './MapCard'
 import RoomOutlineEditor from './RoomOutlineEditor'
 import RoomPanel from './RoomPanel'
 import SlotSwitcher from './SlotSwitcher'
 import ToolButton from './ToolButton'
-import { TAP } from './form-styles'
+import { btnQuiet, btnSmall } from './form-styles'
 
 /**
  * The building map.
@@ -46,13 +48,35 @@ export default function BuildingMap({
   isAdmin,
   initialRoomKey,
   initialSlotId,
+  canEdit,
+  nav,
 }: {
   initial: BuildingData
   actorName?: string
   isAdmin: boolean
+  /**
+   * Whether this account may change the schedule, not only read it — the
+   * building map's own edit permission (see src/lib/permissions.ts).
+   *
+   * Read-only is the useful state, not a degraded one: most of the ward wants to
+   * know which room a class is in, and nobody but a couple of people should be
+   * moving classes around. The write routes check the permission themselves; this
+   * decides which controls exist.
+   */
+  canEdit: boolean
   initialRoomKey: string | null
   initialSlotId: string | null
+  /**
+   * The page's nav, rendered into the floating bar rather than a header band of
+   * its own. It arrives as a node because it is a server component's job to know
+   * which sections this person may open, and this component's job to know where
+   * there is room for it.
+   */
+  nav?: React.ReactNode
 }) {
+  // Everything below is derived from `initial`/`data`, including the counts the
+  // page header prints — see `stats`, which is what the About dialog says when
+  // that header is hidden on a phone held sideways.
   const [data, setData] = useState(initial)
   const [slotId, setSlotId] = useState<string | null>(() => {
     if (initialSlotId && initial.slots.some((s) => s.id === initialSlotId)) return initialSlotId
@@ -70,6 +94,12 @@ export default function BuildingMap({
    * and this is the second look, not the first.
    */
   const [hideClosed, setHideClosed] = useState(false)
+  /**
+   * The one dialog on screen, or null. Confirmations and the room-name prompt
+   * used to be `window.confirm` / `window.prompt`; see Dialog for why they are
+   * not any more.
+   */
+  const [dialog, setDialog] = useState<DialogRequest | null>(null)
   /** True on a touch device, so the copy says Tap rather than Click. */
   const [coarse, setCoarse] = useState(false)
   const canvas = useRef<CanvasHandle | null>(null)
@@ -178,6 +208,19 @@ export default function BuildingMap({
     return (['booked', 'free', 'closed'] as const).filter((k) => seen.has(k))
   }, [data.rooms, byRoom, availability, slotId])
 
+  /**
+   * What the page header says, computed here as well so the About dialog can say
+   * it when the header is hidden. Both read the same rows, so they cannot drift.
+   */
+  const stats = useMemo(
+    () => ({
+      rooms: data.rooms.length,
+      assignable: data.rooms.filter((r) => r.is_assignable).length,
+      hours: data.slots.filter((s) => s.is_active).length,
+    }),
+    [data.rooms, data.slots],
+  )
+
   /** The organizations with a class somewhere this hour, for the legend. */
   const legend = useMemo(() => {
     const seen = new Map<string, string>()
@@ -195,6 +238,9 @@ export default function BuildingMap({
         e.target instanceof HTMLElement &&
         ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)
       if (typing) return
+      // A dialog owns the keyboard while it is open. It handles Escape itself,
+      // on a captured listener, so this one must not also unwind a trace.
+      if (dialog) return
 
       if (e.key === 'Escape') {
         if (draft) setDraft(null)
@@ -229,7 +275,7 @@ export default function BuildingMap({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [draft, selectedKey])
+  }, [draft, selectedKey, dialog])
 
   async function saveDraft() {
     if (!draft) return
@@ -237,16 +283,31 @@ export default function BuildingMap({
     if (points.length < 3) return
 
     if (draft.roomKey === null) {
-      const name = window.prompt('Room name (the number, or what it is called):', '')
-      if (!name || !name.trim()) return
-      const { ok, json } = await send('/api/building/rooms', 'POST', {
-        name: name.trim(),
-        points,
+      // The name is asked for at the end rather than the start: somebody tracing
+      // a room is looking at the drawing, and a field in the way of the first tap
+      // is a field answered before it is known which room this is.
+      setDialog({
+        title: 'Name this room',
+        body: 'Whatever is on the door — the number, or what it is called.',
+        input: {
+          label: 'Room name',
+          placeholder: '101, or Relief Society',
+          validate: (v) => (v.length > 80 ? 'Shorter than 80 characters, please.' : null),
+        },
+        confirm: {
+          label: 'Save room',
+          run: (name) => {
+            void (async () => {
+              const { ok, json } = await send('/api/building/rooms', 'POST', { name, points })
+              setDialog(null)
+              if (ok) {
+                setDraft(null)
+                if (typeof json.key === 'string') setSelectedKey(json.key)
+              }
+            })()
+          },
+        },
       })
-      if (ok) {
-        setDraft(null)
-        if (typeof json.key === 'string') setSelectedKey(json.key)
-      }
       return
     }
 
@@ -260,10 +321,22 @@ export default function BuildingMap({
     setDraft({ roomKey: key, points: target.points, active: null, original: target.points })
   }
 
-  async function deleteRoom(key: string, name: string) {
-    if (!window.confirm(`Delete ${name}? Its outline is not recoverable from the map.`)) return
-    const { ok } = await send(`/api/building/rooms/${key}`, 'DELETE')
-    if (ok) setSelectedKey(null)
+  function deleteRoom(key: string, name: string) {
+    setDialog({
+      title: `Delete ${name}?`,
+      body: 'The outline is not recoverable from the map. Tracing it again is about twenty taps.',
+      confirm: {
+        label: 'Delete room',
+        danger: true,
+        run: () => {
+          void (async () => {
+            const { ok } = await send(`/api/building/rooms/${key}`, 'DELETE')
+            setDialog(null)
+            if (ok) setSelectedKey(null)
+          })()
+        },
+      },
+    })
   }
 
   return (
@@ -287,157 +360,263 @@ export default function BuildingMap({
         }}
       />
 
-      {/* One floating column rather than controls pinned to opposite corners: at
-          phone width the two would collide and cover the drawing between them. */}
-      <div className="pointer-events-none absolute inset-x-2 top-2 z-10 flex items-start justify-between gap-2 sm:inset-x-3 sm:top-3">
-        <div className="pointer-events-auto w-[15rem] space-y-2 sm:w-[17rem]">
-          <SlotSwitcher
-            slots={data.slots}
-            activeId={slotId}
-            isAdmin={isAdmin}
-            busy={busy}
-            onPick={setSlotId}
-            onCreate={(body) => send('/api/building/slots', 'POST', body)}
-            onUpdate={(id, body) => send(`/api/building/slots/${id}`, 'PATCH', body)}
-            onDelete={(id) => {
-              if (!window.confirm('Delete this hour?')) return
-              void send(`/api/building/slots/${id}`, 'DELETE')
-            }}
-          />
+      {/*
+        Everything that floats over the drawing: a bar across the top, and
+        whatever hangs under its left end.
 
-          {draft ? (
-            <RoomOutlineEditor
-              draft={draft}
-              roomName={data.rooms.find((r) => r.key === draft.roomKey)?.name ?? null}
+        The bar rather than a column down the left: a floorplan is wider than it
+        is tall, so the empty paper is along the top, and a column of cards was
+        covering rooms at every zoom level. The page has no header of its own, so
+        the nav rides in this bar too — pinned right, where a menu panel has room
+        to hang without running off the side of a phone.
+      */}
+      <div className="pointer-events-none absolute inset-x-2 top-2 bottom-9 z-20 flex flex-col gap-2 sm:inset-x-3 sm:top-3 sm:bottom-10">
+        {/*
+          The bar wraps rather than squeezing. All of it — hour chip, four tools,
+          Menu — is about 440px, and a phone is 375px, so something has to go to
+          a second line. `order` decides which: the hour and the nav stay on the
+          first line, and the tools drop below them. The two that stay are the
+          ones somebody needs without thinking; a tool is something they came
+          looking for. Above `sm` everything fits on one line and the order is
+          the reading order again.
+        */}
+        <div className="flex flex-wrap items-start gap-2">
+          <div className="pointer-events-auto order-1 w-[8.5rem] shrink-0 sm:w-[13rem]">
+            <SlotSwitcher
+              slots={data.slots}
+              activeId={slotId}
+              isAdmin={isAdmin}
               busy={busy}
-              coarse={coarse}
-              onChange={setDraft}
-              onSave={saveDraft}
-              onCancel={() => setDraft(null)}
+              onPick={setSlotId}
+              onCreate={(body) => send('/api/building/slots', 'POST', body)}
+              onUpdate={(id, body) => send(`/api/building/slots/${id}`, 'PATCH', body)}
+              onDelete={(id) =>
+                setDialog({
+                  title: 'Delete this hour?',
+                  body:
+                    'An hour that is not meeting this year is better switched off — that keeps ' +
+                    'what met in it. Deleting is refused while anything is assigned.',
+                  confirm: {
+                    label: 'Delete hour',
+                    danger: true,
+                    run: () => {
+                      void (async () => {
+                        await send(`/api/building/slots/${id}`, 'DELETE')
+                        setDialog(null)
+                      })()
+                    },
+                  },
+                })
+              }
             />
-          ) : (
-            <div className="rounded-lg border border-neutral-200 bg-white/95 p-2 shadow-sm">
-              <div className="flex gap-1.5">
-                <ToolButton
-                  label="Trace a room"
-                  hint="Draw an outline for a room the plan does not have yet"
-                  align="left"
-                  onClick={() => {
-                    setSelectedKey(null)
-                    setDraft({ roomKey: null, points: [], active: null, original: [] })
-                  }}
-                  icon={
-                    <>
-                      <path d="M5 6.5 18.5 5l1.5 12.5L6.5 19z" />
-                      <circle cx="5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
-                      <circle cx="18.5" cy="5" r="1.5" fill="currentColor" stroke="none" />
-                      <circle cx="20" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
-                      <circle cx="6.5" cy="19" r="1.5" fill="currentColor" stroke="none" />
-                    </>
-                  }
-                />
-                <ToolButton
-                  label={freeOnly ? 'Show every room' : 'Show only free rooms'}
-                  hint="Dim the rooms that already have a class this hour"
-                  align="center"
-                  pressed={freeOnly}
-                  onClick={() => setFreeOnly((v) => !v)}
-                  icon={
-                    <>
-                      <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
-                      <path d="M8 12.4l2.6 2.6L16.5 9" />
-                    </>
-                  }
-                />
-                <ToolButton
-                  label={listMode ? 'Back to the map' : 'List this hour'}
-                  hint="Every room and its class as a table, for printing"
-                  align="right"
-                  pressed={listMode}
-                  onClick={() => setListMode((v) => !v)}
-                  icon={
-                    <>
-                      <path d="M8 6.5h12M8 12h12M8 17.5h12" />
-                      <circle cx="4.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
-                      <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
-                      <circle cx="4.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" />
-                    </>
-                  }
-                />
-              </div>
+          </div>
 
-              {/* The colour key, and the one control that belongs with it: what
-                  the grey rooms are and how to stop looking at them. */}
-              {statuses.length > 0 && (
-                <div className="mt-2 space-y-0.5 border-t border-neutral-200 pt-1.5">
-                  {statuses.map((key) => (
-                    <div key={key} className="flex items-center gap-1.5">
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-sm ring-1"
-                        style={{ background: ROOM_STATUS[key].swatch, color: ROOM_STATUS[key].stroke }}
-                      />
-                      <Clamped className="text-[11px] text-neutral-700">
-                        {ROOM_STATUS[key].label}
-                      </Clamped>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setHideClosed((v) => !v)}
-                    aria-pressed={hideClosed}
-                    className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1 text-[11px] text-neutral-700 hover:border-neutral-900"
-                  >
-                    {hideClosed ? 'Show rooms not for classes' : 'Hide rooms not for classes'}
-                  </button>
-                </div>
-              )}
+          {/* One pill of four segments rather than four bordered buttons in a
+              padded card: no padding and one border means this is exactly as
+              tall as the hour chip beside it, which is the same 44px control in
+              the same card. */}
+          <div className="pointer-events-auto order-3 flex shrink-0 divide-x divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white/95 shadow-sm backdrop-blur-[2px] sm:order-2">
+            {/* Tracing a room is a write, so it is not offered to a read-only
+                account — the other three only change what is on screen. */}
+            {canEdit && (
+              <ToolButton
+                segment
+                label="Trace a room"
+                hint="Draw an outline for a room the plan does not have yet"
+                align="left"
+                onClick={() => {
+                  setSelectedKey(null)
+                  setDraft({ roomKey: null, points: [], active: null, original: [] })
+                }}
+                icon={
+                  <>
+                    <path d="M5 6.5 18.5 5l1.5 12.5L6.5 19z" />
+                    <circle cx="5" cy="6.5" r="1.5" fill="currentColor" stroke="none" />
+                    <circle cx="18.5" cy="5" r="1.5" fill="currentColor" stroke="none" />
+                    <circle cx="20" cy="17.5" r="1.5" fill="currentColor" stroke="none" />
+                    <circle cx="6.5" cy="19" r="1.5" fill="currentColor" stroke="none" />
+                  </>
+                }
+              />
+            )}
+            <ToolButton
+              segment
+              label={freeOnly ? 'Show every room' : 'Show only free rooms'}
+              hint="Dim the rooms that already have a class this hour"
+              align="center"
+              pressed={freeOnly}
+              onClick={() => setFreeOnly((v) => !v)}
+              icon={
+                <>
+                  <rect x="3.5" y="4.5" width="17" height="15" rx="1.5" />
+                  <path d="M8 12.4l2.6 2.6L16.5 9" />
+                </>
+              }
+            />
+            <ToolButton
+              segment
+              label={listMode ? 'Back to the map' : 'List this hour'}
+              hint="Every room and its class as a table, for printing"
+              align="right"
+              pressed={listMode}
+              onClick={() => setListMode((v) => !v)}
+              icon={
+                <>
+                  <path d="M8 6.5h12M8 12h12M8 17.5h12" />
+                  <circle cx="4.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+                  <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
+                  <circle cx="4.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" />
+                </>
+              }
+            />
+            {/*
+              The page has no header, so this is where the title and the counts
+              live now. Always present rather than only on a small screen: it is
+              the only thing on the page that says what the page is.
+            */}
+            <ToolButton
+              segment
+              label="About this map"
+              hint="How many rooms and hours are on the schedule"
+              align="right"
+              onClick={() =>
+                setDialog({
+                  title: 'Building map',
+                  body: (
+                    <>
+                      {stats.rooms} room{stats.rooms === 1 ? '' : 's'} on the plan ·{' '}
+                      {stats.assignable} hold classes · {stats.hours} hour
+                      {stats.hours === 1 ? '' : 's'} on the schedule.
+                      <br />
+                      Which class is in which room, hour by hour. Tap a room to see its
+                      Sunday.
+                    </>
+                  ),
+                })
+              }
+              icon={
+                <>
+                  <circle cx="12" cy="12" r="8.5" />
+                  <path d="M12 11v5.5" />
+                  <circle cx="12" cy="8" r="1" fill="currentColor" stroke="none" />
+                </>
+              }
+            />
+          </div>
 
-              {/* Organizations second: the fill answers "is this room free", the
-                  label's colour answers "whose class is it". */}
-              {legend.length > 0 && (
-                <div className="mt-1.5 space-y-0.5 border-t border-neutral-200 pt-1.5">
-                  {legend.map((key) => (
-                    <div key={key} className="flex items-center gap-1.5">
-                      <span
-                        aria-hidden
-                        className="h-2.5 w-2.5 shrink-0 rounded-full"
-                        style={{ background: orgInk(key) }}
-                      />
-                      <Clamped className="text-[11px] text-neutral-700">{orgLabel(key)}</Clamped>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {error && (
-            <p
-              role="alert"
-              className="rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-800"
-            >
-              {error}
-            </p>
+          {nav && (
+            <div className="pointer-events-auto order-2 ml-auto shrink-0 sm:order-3">{nav}</div>
           )}
         </div>
 
-        <div className="pointer-events-auto flex flex-wrap justify-end gap-1.5 text-xs">
-          {[
-            { label: '−', title: 'Zoom out', run: () => canvas.current?.zoomBy(0.8) },
-            { label: '+', title: 'Zoom in', run: () => canvas.current?.zoomBy(1.25) },
-            { label: 'Fit', title: 'Fit the whole building', run: () => canvas.current?.fit() },
-          ].map((b) => (
-            <button
-              key={b.label}
-              type="button"
-              title={b.title}
-              onClick={b.run}
-              className="min-h-9 min-w-9 rounded-md border border-neutral-300 bg-white px-2 py-1.5 font-medium text-neutral-700 shadow-sm hover:border-neutral-900"
-            >
-              {b.label}
-            </button>
-          ))}
+        {/* Under the bar. `pointer-events-none` on the column itself, so the
+            empty space below the cards is still the map. */}
+        <div className="flex min-h-0 flex-1 gap-2">
+          {/* `items-start`, so the folded Key is the width of the word Key rather
+              than the width of the panel it becomes. */}
+          <div className="pointer-events-none flex min-h-0 flex-col items-start gap-2">
+            {draft ? (
+              <div className="pointer-events-auto w-[13.5rem] sm:w-[16rem]">
+                <RoomOutlineEditor
+                  draft={draft}
+                  roomName={data.rooms.find((r) => r.key === draft.roomKey)?.name ?? null}
+                  busy={busy}
+                  coarse={coarse}
+                  onChange={setDraft}
+                  onSave={saveDraft}
+                  onCancel={() => setDraft(null)}
+                />
+              </div>
+            ) : (
+              // Folds like the hour chip, and scrolls inside itself rather than
+              // running off the bottom of the screen: a Sunday with a dozen
+              // organizations scheduled is a key taller than the phone it is on.
+              <MapCard
+                title="Key"
+                className="pointer-events-auto max-h-full"
+                openClassName="w-[13.5rem] sm:w-[16rem]"
+              >
+                {/* First, not last. It is the one control in here — everything
+                    below it is a colour being explained — and a button under a
+                    scrolling list is a button somebody has to go looking for. */}
+                <button
+                  type="button"
+                  onClick={() => setHideClosed((v) => !v)}
+                  aria-pressed={hideClosed}
+                  className={`${btnSmall} w-full`}
+                >
+                  {hideClosed ? 'Show rooms not for classes' : 'Hide rooms not for classes'}
+                </button>
+
+                {statuses.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5">
+                    {statuses.map((key) => (
+                      <div key={key} className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm ring-1"
+                          style={{
+                            background: ROOM_STATUS[key].swatch,
+                            color: ROOM_STATUS[key].stroke,
+                          }}
+                        />
+                        <Clamped className="text-[11px] text-neutral-700">
+                          {ROOM_STATUS[key].label}
+                        </Clamped>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Organizations second: the fill answers "is this room free",
+                    the label's colour answers "whose class is it". */}
+                {legend.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5 border-t border-neutral-200 pt-1.5">
+                    {legend.map((key) => (
+                      <div key={key} className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{ background: orgInk(key) }}
+                        />
+                        <Clamped className="text-[11px] text-neutral-700">{orgLabel(key)}</Clamped>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </MapCard>
+            )}
+
+            {error && (
+              <p
+                role="alert"
+                className="pointer-events-auto max-w-[13.5rem] rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-800 sm:max-w-[16rem]"
+              >
+                {error}
+              </p>
+            )}
+          </div>
+
+          {/* Bottom right, out of the bar: zoom is a thumb control, and the top
+              of the screen is where the thumb is not. */}
+          <div className="pointer-events-auto mt-auto ml-auto flex shrink-0 gap-1.5 text-xs">
+            {[
+              { label: '−', title: 'Zoom out', run: () => canvas.current?.zoomBy(0.8) },
+              { label: '+', title: 'Zoom in', run: () => canvas.current?.zoomBy(1.25) },
+              { label: 'Fit', title: 'Fit the whole building', run: () => canvas.current?.fit() },
+            ].map((b) => (
+              <button
+                key={b.label}
+                type="button"
+                title={b.title}
+                aria-label={b.title}
+                onClick={b.run}
+                className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-neutral-300 bg-white text-sm font-medium text-neutral-700 shadow-sm hover:border-neutral-900 sm:min-h-9 sm:min-w-9"
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -467,6 +646,10 @@ export default function BuildingMap({
         />
       )}
 
+      {dialog && (
+        <Dialog request={dialog} busy={busy} onClose={() => setDialog(null)} />
+      )}
+
       {room && !draft && (
         <RoomPanel
           room={room}
@@ -482,6 +665,7 @@ export default function BuildingMap({
             send(`/api/building/rooms/${room.key}`, 'PATCH', { is_assignable: next })
           }
           availability={availability}
+          canEdit={canEdit}
           onSetSlotAvailability={(slot, next) =>
             send(`/api/building/rooms/${room.key}/availability`, 'PUT', {
               slot_id: slot,
@@ -554,7 +738,7 @@ function HourList({
           <button
             type="button"
             onClick={onClose}
-            className={`rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 ${TAP}`}
+            className={btnQuiet}
           >
             Back to the map
           </button>

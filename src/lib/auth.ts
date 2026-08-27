@@ -3,7 +3,7 @@
 import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { COOKIE_NAME, verifySession, type Session } from './auth-edge'
-import { canSee } from './permissions'
+import { canEdit, canSee } from './permissions'
 import { findUserById, type User } from './users'
 
 export { COOKIE_NAME, MAX_AGE, cookieOptions, signSession, verifySession } from './auth-edge'
@@ -55,6 +55,19 @@ export async function requireAdmin(): Promise<User> {
 export async function requireSection(section: string): Promise<User> {
   const user = await requireUser()
   if (!canSee(user, section)) throw new ForbiddenError(`No access to ${section}`)
+  return user
+}
+
+/**
+ * The gate on a write, where a section separates reading from changing.
+ *
+ * Every handler that mutates calls this instead of `requireSection`. Hiding the
+ * buttons is not a permission system — a read-only account still holds a cookie
+ * that can POST — so the two go together and this one is the one that counts.
+ */
+export async function requireSectionEdit(section: string): Promise<User> {
+  const user = await requireUser()
+  if (!canEdit(user, section)) throw new ForbiddenError(`Cannot change ${section}`)
   return user
 }
 

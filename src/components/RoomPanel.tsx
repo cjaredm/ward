@@ -11,7 +11,16 @@ import {
   slotLabel,
 } from '@/lib/building'
 import type { BuildingRoom, ClassOption, MeetingSlot, RoomAssignment } from '@/lib/types'
-import { TAP, field, labelCls } from './form-styles'
+import {
+  btnDanger,
+  btnPrimary,
+  btnQuiet,
+  btnSmall,
+  checkBox,
+  checkRow,
+  field,
+  labelCls,
+} from './form-styles'
 
 export type AssignmentDraft = {
   title: string
@@ -37,6 +46,7 @@ export default function RoomPanel({
   busy,
   warnings,
   availability,
+  canEdit,
   onClose,
   onRename,
   onToggleAssignable,
@@ -62,6 +72,12 @@ export default function RoomPanel({
   warnings: string[]
   /** The per-hour availability overrides, from `indexAvailability`. */
   availability: Map<string, boolean>
+  /**
+   * False for an account with the building map but not its edit permission.
+   * Every control that writes is left out rather than disabled: a greyed-out
+   * form is a promise that ticking something else will enable it.
+   */
+  canEdit: boolean
   onClose: () => void
   onRename: (name: string) => void
   onToggleAssignable: (next: boolean) => void
@@ -103,20 +119,26 @@ export default function RoomPanel({
         <div aria-hidden className="mx-auto mb-2 h-1 w-10 rounded-full bg-neutral-300 sm:hidden" />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <label className={labelCls}>Room name</label>
-            <input
-              type="text"
-              // Keyed on the room so switching rooms reloads the field rather
-              // than keeping the previous room's half-typed name in it.
-              key={room.key}
-              defaultValue={room.name}
-              disabled={busy}
-              onBlur={(e) => {
-                const next = e.target.value.trim()
-                if (next && next !== room.name) onRename(next)
-              }}
-              className={field}
-            />
+            {canEdit ? (
+              <>
+                <label className={labelCls}>Room name</label>
+                <input
+                  type="text"
+                  // Keyed on the room so switching rooms reloads the field rather
+                  // than keeping the previous room's half-typed name in it.
+                  key={room.key}
+                  defaultValue={room.name}
+                  disabled={busy}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim()
+                    if (next && next !== room.name) onRename(next)
+                  }}
+                  className={field}
+                />
+              </>
+            ) : (
+              <h2 className="truncate text-base font-semibold text-neutral-900">{room.name}</h2>
+            )}
             <p className="mt-1 font-mono text-[11px] text-neutral-500">{room.key}</p>
           </div>
           <button
@@ -142,9 +164,9 @@ export default function RoomPanel({
 
         {!room.is_assignable ? (
           <p className="rounded-md border border-neutral-200 bg-neutral-50 p-2.5 text-[12px] leading-snug text-neutral-600">
-            This space is marked as not holding classes, so it is grey on the map and
-            left out of &ldquo;rooms free this hour&rdquo;. Tick the box below to schedule in
-            it, and then each hour can be closed on its own.
+            This space is marked as not holding classes, so it is grey on the map and left out of
+            &ldquo;rooms free this hour&rdquo;.
+            {canEdit && ' Tick the box below to schedule in it, and then each hour can be closed on its own.'}
           </p>
         ) : active.length === 0 ? (
           <p className="text-[12px] text-neutral-600">
@@ -161,6 +183,7 @@ export default function RoomPanel({
                 taken={taken.get(slot.id)}
                 busy={busy}
                 compact={isSheet}
+                canEdit={canEdit}
                 available={roomAvailability(room, slot.id, availability)}
                 onSetAvailability={(next) => onSetSlotAvailability(slot.id, next)}
                 onAdd={(draft) => onAddAssignment(slot.id, draft)}
@@ -173,41 +196,34 @@ export default function RoomPanel({
 
         <div className="mt-4 space-y-2 border-t border-neutral-200 pt-3">
           <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={onReshape}
-              className={`flex-1 rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 hover:border-neutral-900 ${TAP}`}
-            >
-              Fix outline
-            </button>
-            <button
-              type="button"
-              onClick={onZoomTo}
-              className={`flex-1 rounded-md border border-neutral-300 px-2.5 text-xs text-neutral-800 hover:border-neutral-900 ${TAP}`}
-            >
+            {canEdit && (
+              <button type="button" onClick={onReshape} className={`${btnQuiet} flex-1`}>
+                Fix outline
+              </button>
+            )}
+            <button type="button" onClick={onZoomTo} className={`${btnQuiet} flex-1`}>
               Zoom to room
             </button>
           </div>
 
-          <label className="flex items-center gap-2 text-[12px] text-neutral-700">
-            <input
-              type="checkbox"
-              checked={room.is_assignable}
-              disabled={busy}
-              onChange={(e) => onToggleAssignable(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Classes meet in here
-          </label>
+          {canEdit && (
+            <>
+              <label className={checkRow}>
+                <input
+                  type="checkbox"
+                  checked={room.is_assignable}
+                  disabled={busy}
+                  onChange={(e) => onToggleAssignable(e.target.checked)}
+                  className={checkBox}
+                />
+                Classes meet in here
+              </label>
 
-          <button
-            type="button"
-            onClick={onDeleteRoom}
-            disabled={busy}
-            className="block pt-1 text-[11px] text-red-700 underline underline-offset-2 disabled:opacity-40"
-          >
-            Delete this room
-          </button>
+              <button type="button" onClick={onDeleteRoom} disabled={busy} className={btnDanger}>
+                Delete this room
+              </button>
+            </>
+          )}
         </div>
       </div>
     </aside>
@@ -222,6 +238,7 @@ function SlotSection({
   taken,
   busy,
   compact,
+  canEdit,
   available,
   onSetAvailability,
   onAdd,
@@ -235,6 +252,8 @@ function SlotSection({
   taken: Set<string> | undefined
   busy: boolean
   compact: boolean
+  /** False on a read-only account: the hour is listed, nothing can be changed. */
+  canEdit: boolean
   /** Whether a class can meet in this room during this hour. */
   available: boolean
   onSetAvailability: (next: boolean | null) => void
@@ -256,16 +275,18 @@ function SlotSection({
           holds classes or this section would not be rendered, so "available" is
           the default and only the closure is a decision worth a row.
         */}
-        <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-neutral-600">
-          <input
-            type="checkbox"
-            checked={available}
-            disabled={busy}
-            onChange={(e) => onSetAvailability(e.target.checked ? null : false)}
-            className="h-4 w-4"
-          />
-          Available
-        </label>
+        {canEdit && (
+          <label className={`${checkRow} shrink-0`}>
+            <input
+              type="checkbox"
+              checked={available}
+              disabled={busy}
+              onChange={(e) => onSetAvailability(e.target.checked ? null : false)}
+              className={checkBox}
+            />
+            Available
+          </label>
+        )}
       </div>
 
       <div className="mt-1 space-y-1.5">
@@ -308,24 +329,27 @@ function SlotSection({
                   </p>
                 )}
               </div>
-              <div className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setEditingId(a.id)}
-                  className="rounded px-1.5 py-1 text-[11px] text-neutral-600 underline underline-offset-2 hover:text-neutral-900"
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onDelete(a.id)}
-                  disabled={busy}
-                  aria-label={`Remove ${a.title}`}
-                  className="rounded px-1.5 py-1 text-[11px] text-red-700 underline underline-offset-2 disabled:opacity-40"
-                >
-                  Remove
-                </button>
-              </div>
+              {canEdit && (
+                <div className="flex shrink-0 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditingId(a.id)}
+                    aria-label={`Edit ${a.title}`}
+                    className={btnSmall}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(a.id)}
+                    disabled={busy}
+                    aria-label={`Remove ${a.title}`}
+                    className={`${btnSmall} border-red-300 text-red-700 hover:border-red-600`}
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
           ),
         )}
@@ -344,13 +368,15 @@ function SlotSection({
             onCancel={() => setAdding(false)}
           />
         ) : (
-          // No way in while the hour is closed: the route refuses it anyway, and
-          // a form that always ends in an error is worse than no form.
+          // No way in while the hour is closed, or on a read-only account: the
+          // route refuses both anyway, and a form that always ends in an error is
+          // worse than no form.
+          canEdit &&
           available && (
             <button
               type="button"
               onClick={() => setAdding(true)}
-              className={`w-full rounded-md border border-dashed border-neutral-300 px-2 text-xs text-neutral-600 hover:border-neutral-500 ${TAP}`}
+              className={`${btnQuiet} w-full border-dashed text-neutral-600`}
             >
               + Add a class
             </button>
@@ -466,15 +492,11 @@ function AssignmentForm({
               unit: parsed?.unit ?? '',
             })
           }
-          className={`flex-1 rounded-md bg-blue-600 px-2 text-xs font-medium text-white disabled:opacity-40 ${TAP}`}
+          className={`${btnPrimary} flex-1`}
         >
           {busy ? 'Saving…' : submitLabel}
         </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className={`rounded-md border border-neutral-300 bg-white px-2 text-xs text-neutral-800 ${TAP}`}
-        >
+        <button type="button" onClick={onCancel} className={btnQuiet}>
           Cancel
         </button>
       </div>

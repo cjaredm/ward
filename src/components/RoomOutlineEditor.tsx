@@ -1,7 +1,7 @@
 'use client'
 
 import { MIN_VERTICES, canRemoveVertex, removeVertex } from '@/lib/floorplan-geom'
-import { TAP } from './form-styles'
+import { btnPrimary, btnQuiet } from './form-styles'
 import type { Draft } from './BuildingCanvas'
 
 /**
@@ -62,7 +62,7 @@ export default function RoomOutlineEditor({
           type="button"
           onClick={onSave}
           disabled={!enough || busy}
-          className={`flex-1 rounded-md bg-blue-600 px-2.5 text-xs font-medium text-white disabled:opacity-40 ${TAP}`}
+          className={`${btnPrimary} flex-1`}
         >
           {busy ? 'Saving…' : tracing ? 'Save room' : 'Save outline'}
         </button>
@@ -72,7 +72,7 @@ export default function RoomOutlineEditor({
             type="button"
             onClick={() => onChange({ ...draft, points: points.slice(0, -1), active: null })}
             disabled={points.length === 0}
-            className={`rounded-md border border-neutral-300 bg-white px-2.5 text-xs text-neutral-800 disabled:opacity-40 ${TAP}`}
+            className={btnQuiet}
           >
             Undo
           </button>
@@ -94,14 +94,14 @@ export default function RoomOutlineEditor({
                     ? 'A room needs at least three corners'
                     : `Remove corner ${active + 1} — or press Delete`
               }
-              className={`rounded-md border border-neutral-300 bg-white px-2.5 text-xs text-neutral-800 disabled:opacity-40 ${TAP}`}
+              className={btnQuiet}
             >
               Remove point
             </button>
             <button
               type="button"
               onClick={() => onChange({ ...draft, points: draft.original, active: null })}
-              className={`rounded-md border border-neutral-300 bg-white px-2.5 text-xs text-neutral-800 ${TAP}`}
+              className={btnQuiet}
             >
               Revert
             </button>
@@ -111,7 +111,7 @@ export default function RoomOutlineEditor({
         <button
           type="button"
           onClick={onCancel}
-          className={`rounded-md border border-neutral-300 bg-white px-2.5 text-xs text-neutral-800 ${TAP}`}
+          className={btnQuiet}
         >
           Cancel
         </button>

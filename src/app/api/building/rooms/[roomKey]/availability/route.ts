@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import { sql } from '@/lib/db'
-import { authErrorResponse, requireSection } from '@/lib/auth'
+import { authErrorResponse, requireSectionEdit } from '@/lib/auth'
 
 export const runtime = 'nodejs'
 
@@ -29,7 +29,7 @@ const Body = z.object({
 export async function PUT(req: NextRequest, ctx: { params: Promise<{ roomKey: string }> }) {
   let actor: string
   try {
-    actor = (await requireSection('building')).name
+    actor = (await requireSectionEdit('building')).name
   } catch (err) {
     return authErrorResponse(err)
   }

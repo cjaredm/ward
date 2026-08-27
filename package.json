@@ -29,6 +29,7 @@
     "test:floorplan": "tsx scripts/test-floorplan-geom.ts",
     "test:buildinglabels": "tsx scripts/test-building-labels.ts",
     "test:building": "tsx scripts/test-building.ts",
+    "test:permissions": "tsx scripts/test-permissions.ts",
     "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {
