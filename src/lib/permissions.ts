@@ -31,6 +31,13 @@ export const SECTIONS = [
     href: '/org-chart',
     icon: 'M12 4a2 2 0 100 4 2 2 0 000-4zm0 4v3m0 0H7a2 2 0 00-2 2v1m7-3h5a2 2 0 012 2v1M5 16a2 2 0 100 4 2 2 0 000-4zm14 0a2 2 0 100 4 2 2 0 000-4z',
   },
+  {
+    key: 'building',
+    label: 'Building map',
+    description: 'Rooms in the stake center, and the classes meeting in each hour by hour.',
+    href: '/building',
+    icon: 'M4 21V6a1 1 0 011-1h6a1 1 0 011 1v15M12 21V10a1 1 0 011-1h6a1 1 0 011 1v11M3 21h18M7 9h2m-2 4h2m-2 4h2m7-4h2m-2 4h2',
+  },
 ] as const
 
 export type SectionKey = (typeof SECTIONS)[number]['key']

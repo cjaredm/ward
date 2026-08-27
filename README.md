@@ -438,6 +438,89 @@ a ward's rosters are a few hundred rows either side, which is smaller than one r
 so switching groups is instant on the sort of phone signal this app is used on. The grouping itself
 is pure ([src/lib/map-groups.ts](src/lib/map-groups.ts)) and covered by `npm run test:mapgroups`.
 
+## Building map
+
+`/building` is the stake center floorplan with the rooms drawn on it, and what meets in each room
+hour by hour. It answers the question the ward map and the org chart cannot: which room is Course 15
+in this hour, and which rooms are sitting empty.
+
+**First-time setup.** Save the floorplan viewer HTML to `data/floorplan-viewer.html`
+(or `data/floorplan.html` — the seed accepts either name), then:
+
+```bash
+npm run migrate               # creates the four tables and the two 25-minute blocks
+npm run seed:building -- --dry-run   # lists the rooms it found, writes nothing
+npm run seed:building         # writes public/floorplan/stake-center.svg and the room rows
+```
+
+The seed derives two things from that one file: the wall drawing, written out as a static SVG the
+page loads as an `<image>`, and one row per room from the `<g id="rooms">` outlines. It is safe to
+re-run — rooms insert `ON CONFLICT DO NOTHING` and are never updated, so an outline you have
+corrected in the app is never reverted by a later seed. Access is per account: tick **Building map**
+on [/admin/users](src/app/(app)/admin/users) for anyone who should see it.
+
+**Hours.** The blocks a Sunday is divided into are data, not code — an admin edits them from the
+Hour card on the map itself. Moving the 9:10 block to 9:15 keeps every class already assigned to it,
+because an assignment references the block by an opaque id rather than by its time. A block that is
+not meeting this year gets switched off rather than deleted, so what met in it is still there when
+it comes back; deleting one is refused while anything is assigned to it.
+
+**Classes.** Each room takes any number of classes per block — the cultural hall really does hold two
+at once, and `104 / 105 / 106` is one traced outline over three rooms. A class is a name you type,
+optionally linked to a ward class the app already knows about.
+
+The picker offers only what takes a classroom, under five headings —
+**Sunday School** (Adult Sunday School, Course 11–17), **Primary** (CTR, Sunbeam, Valiant, and
+Nursery, which is an org of its own), **Young Women** and **Young Men** (their three classes and
+three quorums), and **Adults** (Relief Society, Elders Quorum, which meet as whole organizations
+because they have no parts to break into). `CLASS_SECTIONS` in
+[src/lib/building.ts](src/lib/building.ts) is that whitelist, and it is a whitelist on purpose: the
+imports also produce presidencies, committees, activity groups, organizations that never take a room
+(Bishopric, Ward Missionaries, Temple and Family History) and whole-org entries whose parts are what
+actually meet — nobody schedules 'Young Men' into a room, they schedule three quorums into three of
+them. Within a heading the list is alphabetical, with numeric collation so Valiant 10 follows
+Valiant 9 and Course 9 does not land after Course 17. Presidencies and committees are caught by the
+roster test as well: a class has people enrolled in it, a presidency has callings and nobody
+enrolled. The Primary activity groups are the exception LCR prints with a full roster, so they are
+excluded by name in `NOT_A_CLASS`.
+
+A class that already has a room in that hour is not offered a second one — it comes out of the list
+for that hour only, since Course 15 meets twice on some Sundays. Editing an assignment keeps its own
+class in its own picker. This only applies to classes that are *linked*: a title typed by hand
+cannot be matched, because 'Course 15' and 'Course 15 (combined)' are the same class and different
+strings. The link is the `(org_key, unit)` pair
+the callings and roster imports already use, which is what will let a room show its roster and its
+teachers later; the name you typed stays what gets printed. Putting the same class in two rooms in
+one hour is allowed and warned about, not blocked.
+
+**Tracing and fixing a room.** The trace tool works like the ward map's: tap each corner, then Save.
+Unlike the ward map, a saved outline can be *fixed* — open a room and press **Fix outline** to drag
+its corners, tap a ⊕ on a wall to add one, or select a corner and remove it. Escape backs out one
+layer at a time; Backspace drops the last corner while tracing.
+
+**Availability.** A room has one building-wide switch — *Classes meet in here*, off for the hallways
+and the serving area — and, on top of it, an answer per hour. The chapel holds classes and is still
+not free during sacrament meeting, so each hour in a room's panel has its own **Available** tick.
+Only the overrides are stored: ticking it back on removes the row rather than storing a `true`, so a
+new hour inherits the building instead of arriving as thirty-five rows that mean nothing. Closing an
+hour that still has a class in it is refused with the count, and so is scheduling into a closed hour.
+
+**Reading it.** Every room is painted by what it is doing in the hour on screen: **green** with a
+class in it, **yellow** free, **grey** for the hallways and anything closed for that hour. The key in
+the corner paints the same three swatches, and its button takes the grey rooms off the drawing
+altogether — a plan where half the outlines can never be an answer is a hard plan to schedule
+against. The organization's colour moved to the label rather than the fill, so a green room still
+reads as Primary or Relief Society at a glance. Labels are drawn at a constant screen size and step down from the
+class name to an abbreviation to the room number to nothing as the room gets smaller on screen,
+rather than scaling with the room and rendering the cultural hall in 80px type. The list button
+gives the same hour as a table, which is what prints and what works in a hallway.
+
+The geometry is not PostGIS. A room outline is SVG units on the drawing with Y pointing down, and
+there is no SRID that is honest about that — `ST_Area(::geography)` on those numbers returns a
+plausible figure that means nothing. Outlines live in `jsonb` and the maths lives in
+[src/lib/floorplan-geom.ts](src/lib/floorplan-geom.ts), covered by `npm run test:floorplan`, with
+`npm run test:building` and `npm run test:buildinglabels` over the schedule and label logic.
+
 ## Satellite
 
 The Map / Satellite toggle in the legend switches the basemap to Esri World Imagery — no API key,

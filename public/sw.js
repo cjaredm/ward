@@ -13,7 +13,7 @@
  *
  * Bump VERSION to evict every previously cached asset on the next activate.
  */
-const VERSION = 'v1'
+const VERSION = 'v2'
 const CACHE = `ward-shell-${VERSION}`
 const OFFLINE_URL = '/offline.html'
 
@@ -27,6 +27,12 @@ function isShellAsset(url) {
     url.pathname.startsWith('/_next/static/') ||
     url.pathname.startsWith('/icons/') ||
     url.pathname.startsWith('/maplibre-gl-') ||
+    // The stake centre wall drawing: ~100 KB of architectural linework, no member
+    // data in it at all. Cached on first use rather than precached — precaching
+    // would spend that download at install time for every user, including the
+    // ones who never open the building map. The filename is unhashed, so the
+    // background revalidation below is what picks up a corrected drawing.
+    url.pathname.startsWith('/floorplan/') ||
     url.pathname === '/favicon.ico' ||
     url.pathname === '/manifest.webmanifest'
   )

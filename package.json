@@ -9,9 +9,11 @@
     "icons": "node scripts/generate-icons.mjs",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts",
     "sync:boundary": "tsx scripts/sync-boundary.ts",
     "seed:boundary": "tsx scripts/seed-boundary.ts",
+    "seed:building": "tsx scripts/seed-building.ts",
     "import:parcels": "tsx scripts/import-parcels.ts",
     "import:directory": "tsx scripts/import-directory.ts",
     "import:businesses": "tsx scripts/import-businesses.ts",
@@ -24,6 +26,9 @@
     "test:rosters": "tsx scripts/test-parse-rosters.ts",
     "test:mapgroups": "tsx scripts/test-map-groups.ts",
     "test:orglayout": "tsx scripts/test-org-layout.ts",
+    "test:floorplan": "tsx scripts/test-floorplan-geom.ts",
+    "test:buildinglabels": "tsx scripts/test-building-labels.ts",
+    "test:building": "tsx scripts/test-building.ts",
     "create-user": "tsx scripts/create-user.ts"
   },
   "dependencies": {

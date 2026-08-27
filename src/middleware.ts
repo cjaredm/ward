@@ -35,6 +35,13 @@ export const config = {
      *                                  gating it answers with the /login HTML and
      *                                  Add to Home Screen breaks. Name and colours
      *                                  only — no ward data.
+     *   floorplan/                     the stake centre wall drawing, served from
+     *                                  public/ and cached by the service worker.
+     *                                  Gated, it answers with /login HTML on an
+     *                                  expired session and the worker caches that
+     *                                  page *as the SVG* — the drawing then never
+     *                                  renders again until the cache is dropped.
+     *                                  Architectural linework only, no ward data.
      *   sw.js, offline.html, icons/    the PWA shell. The service worker is
      *                                  fetched and precaches these on install and
      *                                  on every update check; a session that has
@@ -43,6 +50,6 @@ export const config = {
      *                                  cache that as the offline page. All three
      *                                  are static and contain no ward data.
      */
-    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|maplibre-gl-|sw.js|offline.html|icons/).*)',
+    '/((?!login|api/auth|_next/static|_next/image|favicon.ico|robots.txt|manifest.webmanifest|maplibre-gl-|sw.js|offline.html|icons/|floorplan/).*)',
   ],
 }

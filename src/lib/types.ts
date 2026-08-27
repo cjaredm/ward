@@ -1,3 +1,5 @@
+import type { Pt } from './floorplan-geom'
+
 export const HOUSEHOLD_STATUSES = [
   'active',
   'less_active',
@@ -199,4 +201,109 @@ export type MapGroup = {
   rosterCount: number
   /** Members who hold a calling in it. */
   servesCount: number
+}
+
+/**
+ * One room on the building map.
+ *
+ * `points` is an open ring in the floorplan's own coordinate units — see
+ * `src/lib/floorplan-geom.ts` for why the geometry is not PostGIS.
+ */
+export type BuildingRoom = {
+  /** Slug from the drawing: 'high-council', '101'. Stable, and it goes in URLs. */
+  key: string
+  name: string
+  points: Pt[]
+  /** Hand-placed label anchor, or null to use the computed one. */
+  label: Pt | null
+  /**
+   * False for hallways, the serving area and the platform. They are on the
+   * drawing because the drawing is the building, but nothing meets in them, and
+   * without this they sit in "rooms free this hour" forever.
+   *
+   * Building-wide, and deliberately blunt. Whether a room that *does* hold
+   * classes is free in a particular hour is `RoomSlotAvailability`, which
+   * overrides this one hour at a time.
+   */
+  is_assignable: boolean
+  sort: number
+}
+
+/**
+ * One 25-minute block of a Sunday.
+ *
+ * The id is opaque on purpose. The block moves from 9:10 to 9:15 whenever the
+ * stake reshuffles, and an assignment has to survive that as an UPDATE of this
+ * one row rather than a rewrite of everything that referenced the old time.
+ */
+export type MeetingSlot = {
+  id: string
+  /** Overrides the derived '9:10 – 9:35'. Some wards want '2nd hour' instead. */
+  label: string | null
+  /** 'HH:MM:SS' as Postgres `time` renders it. */
+  starts_at: string
+  ends_at: string
+  sort: number
+  is_active: boolean
+}
+
+/** A class meeting in a room during one block. */
+export type RoomAssignment = {
+  id: string
+  room_key: string
+  slot_id: string
+  /** Authoritative for display. Free text: classes renumber every January. */
+  title: string
+  /**
+   * The optional link into the roster model — the same (org_key, unit) pair
+   * `person_orgs` and `callings` already key classes on, so resolving this
+   * class's members and teachers later is a query and not a migration.
+   */
+  org_key: string | null
+  unit: string
+  notes: string | null
+  sort: number
+}
+
+/** A class the ward already has data for, offered as the org link picker. */
+export type ClassOption = {
+  org_key: string
+  /** '' for the organization itself, otherwise 'Course 15', 'Valiant 9'. */
+  unit: string
+  /** How many people are in it, shown next to the option. */
+  people: number
+}
+
+/**
+ * A class option as the database hands it over, before the picker's filter.
+ *
+ * `roster` is the count from `person_orgs` alone — people *in* the class, as
+ * opposed to people with a calling attached to it. That split is what separates
+ * Course 15 from the Sunday School Presidency; see `isClassOption`.
+ */
+export type ClassOptionRow = ClassOption & {
+  roster: number
+}
+
+/**
+ * One deliberate answer to "can a class meet in this room during this hour",
+ * overriding the room's own `is_assignable` for that hour only.
+ *
+ * Only the overrides exist: a room with no row for an hour follows the room. So
+ * the chapel is marked unavailable first hour without anybody having to fill in
+ * a 35-by-2 grid, and a new hour starts out inheriting the building.
+ */
+export type RoomSlotAvailability = {
+  room_key: string
+  slot_id: string
+  is_available: boolean
+}
+
+/** Everything the building map needs, in one response. */
+export type BuildingData = {
+  rooms: BuildingRoom[]
+  slots: MeetingSlot[]
+  assignments: RoomAssignment[]
+  availability: RoomSlotAvailability[]
+  classOptions: ClassOption[]
 }
