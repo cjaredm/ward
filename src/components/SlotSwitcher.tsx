@@ -3,16 +3,34 @@
 import { useState } from 'react'
 import { slotLabel, slotTimes } from '@/lib/building'
 import type { MeetingSlot } from '@/lib/types'
-import { btnDanger, btnPrimary, btnQuiet, checkBox, checkRow, field, labelCls } from './form-styles'
-import MapCard from './MapCard'
+import {
+  btnDanger,
+  btnPrimary,
+  btnQuiet,
+  checkBox,
+  checkRow,
+  field,
+  fieldTight,
+  labelCls,
+} from './form-styles'
 
 /**
  * Which hour the map is showing, and — for an admin — what the hours are.
+ *
+ * A row of hours in the bar rather than a card that folds: there are two of them
+ * on a normal Sunday, and a chip reading 'Hour · First Class' that has to be
+ * opened to change the hour costs a tap to say what one look already said. The
+ * pills carry names only — a name is what anybody calls the hour, and the times
+ * are in the tooltip and in the editor for the twice a year they matter.
  *
  * The hours editor lives here rather than on an admin page of its own. It is two
  * rows that change twice a year; a page for it would be a page with two rows on
  * it forever. The routes behind it still require an admin, so the door is shut
  * independently of where the UI sits.
+ *
+ * It opens in flow, under the pills, rather than floating over the map: the Key
+ * hangs directly below this and a panel positioned over it covered the thing
+ * somebody had just opened the editor beside.
  */
 export default function SlotSwitcher({
   slots,
@@ -35,64 +53,58 @@ export default function SlotSwitcher({
 }) {
   const [editing, setEditing] = useState(false)
   const active = slots.filter((s) => s.is_active)
-  const showing = active.find((s) => s.id === activeId)
 
   return (
-    <MapCard
-      title="Hour"
-      // Lives in the top bar, so it folds to a chip there and opens downwards.
-      dropdown
-      // Folded, the card still answers the only question it is asked most of the
-      // time: which hour am I looking at.
-      summary={showing ? slotLabel(showing) : 'None picked'}
-      action={
-        isAdmin && (
+    <div className="flex flex-col items-start gap-2">
+      <div className="flex flex-wrap items-start gap-2">
+        {/* One pill of segments, the same shape as the tool pill beside it, so
+            the bar reads as one row of controls rather than a card and a strip. */}
+        <div className="flex divide-x divide-neutral-200 overflow-hidden rounded-lg border border-neutral-200 bg-white/95 shadow-sm backdrop-blur-[2px]">
+          {active.length === 0 ? (
+            <span className="flex min-h-11 items-center px-3 text-[11px] whitespace-nowrap text-neutral-500 sm:min-h-9">
+              No hours on the schedule
+            </span>
+          ) : (
+            active.map((slot) => {
+              const on = slot.id === activeId
+              return (
+                <button
+                  key={slot.id}
+                  type="button"
+                  onClick={() => onPick(slot.id)}
+                  aria-pressed={on}
+                  title={slotTimes(slot)}
+                  className={`min-h-11 px-3 text-[13px] font-medium whitespace-nowrap sm:min-h-9 ${
+                    on ? 'bg-blue-600 text-white' : 'text-neutral-700 hover:bg-neutral-100'
+                  }`}
+                >
+                  {slotLabel(slot)}
+                </button>
+              )
+            })
+          )}
+        </div>
+
+        {isAdmin && (
           <button
             type="button"
             onClick={() => setEditing((v) => !v)}
             aria-expanded={editing}
-            className="min-h-9 rounded px-1.5 text-[11px] text-neutral-500 underline underline-offset-2 hover:text-neutral-900"
+            className={`min-h-11 shrink-0 rounded-lg border px-2.5 text-[11px] whitespace-nowrap shadow-sm backdrop-blur-[2px] sm:min-h-9 ${
+              editing
+                ? 'border-neutral-900 bg-neutral-900 text-white'
+                : 'border-neutral-200 bg-white/95 text-neutral-600 hover:text-neutral-900'
+            }`}
           >
             {editing ? 'Done' : 'Edit hours'}
           </button>
-        )
-      }
-    >
-      {/* Scrolls sideways past four blocks rather than wrapping into a wall of
-          pills that pushes the drawing down the screen. */}
-      <div className="-mx-0.5 flex snap-x gap-1.5 overflow-x-auto px-0.5 pb-0.5">
-        {active.length === 0 && (
-          <p className="px-1 py-1 text-[11px] text-neutral-500">No hours on the schedule.</p>
         )}
-        {active.map((slot) => {
-          const on = slot.id === activeId
-          const label = slotLabel(slot)
-          const times = slotTimes(slot)
-          return (
-            <button
-              key={slot.id}
-              type="button"
-              onClick={() => onPick(slot.id)}
-              aria-pressed={on}
-              className={`snap-start flex min-h-11 shrink-0 flex-col justify-center rounded-md px-3 text-left text-[13px] sm:min-h-9 ${
-                on
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100'
-              }`}
-            >
-              <span className="block font-medium">{label}</span>
-              {label !== times && (
-                <span className={`block text-[10px] ${on ? 'text-blue-100' : 'text-neutral-500'}`}>
-                  {times}
-                </span>
-              )}
-            </button>
-          )
-        })}
       </div>
 
       {editing && isAdmin && (
-        <div className="mt-2 space-y-2 border-t border-neutral-200 pt-2">
+        // Scrolls inside itself: the editor with four hours in it is taller than
+        // a phone held sideways.
+        <div className="max-h-[60dvh] w-72 max-w-[calc(100vw-1.5rem)] space-y-2 overflow-y-auto overscroll-contain rounded-lg border border-neutral-200 bg-white p-2 shadow-lg">
           {slots.map((slot) => (
             <SlotRow
               key={slot.id}
@@ -109,7 +121,7 @@ export default function SlotSwitcher({
           </p>
         </div>
       )}
-    </MapCard>
+    </div>
   )
 }
 
@@ -131,8 +143,11 @@ function SlotRow({
 }) {
   return (
     <div className="rounded-md border border-neutral-200 p-1.5">
+      {/* `min-w-0` on both columns: without it a flex item refuses to shrink
+          below the width its content asks for, and a time input asks for more
+          than half this panel. */}
       <div className="flex gap-1.5">
-        <label className="flex-1">
+        <label className="min-w-0 flex-1">
           <span className={labelCls}>Starts</span>
           <input
             type="time"
@@ -143,10 +158,10 @@ function SlotRow({
                 onUpdate({ starts_at: e.target.value })
               }
             }}
-            className={field}
+            className={fieldTight}
           />
         </label>
-        <label className="flex-1">
+        <label className="min-w-0 flex-1">
           <span className={labelCls}>Ends</span>
           <input
             type="time"
@@ -157,7 +172,7 @@ function SlotRow({
                 onUpdate({ ends_at: e.target.value })
               }
             }}
-            className={field}
+            className={fieldTight}
           />
         </label>
       </div>
@@ -221,13 +236,23 @@ function AddSlot({
   return (
     <div className="rounded-md border border-blue-300 bg-blue-50/60 p-1.5">
       <div className="flex gap-1.5">
-        <label className="flex-1">
+        <label className="min-w-0 flex-1">
           <span className={labelCls}>Starts</span>
-          <input type="time" value={starts} onChange={(e) => setStarts(e.target.value)} className={field} />
+          <input
+            type="time"
+            value={starts}
+            onChange={(e) => setStarts(e.target.value)}
+            className={fieldTight}
+          />
         </label>
-        <label className="flex-1">
+        <label className="min-w-0 flex-1">
           <span className={labelCls}>Ends</span>
-          <input type="time" value={ends} onChange={(e) => setEnds(e.target.value)} className={field} />
+          <input
+            type="time"
+            value={ends}
+            onChange={(e) => setEnds(e.target.value)}
+            className={fieldTight}
+          />
         </label>
       </div>
       <label className="mt-1.5 block">

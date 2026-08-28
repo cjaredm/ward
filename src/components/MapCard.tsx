@@ -8,8 +8,7 @@ import { useEffect, useState } from 'react'
  *
  * The cards are over the drawing, not beside it — there is nowhere beside it on
  * a phone — so every row they hold is a row of the building somebody cannot see.
- * Folded, a card is its own title bar and a summary of what it is set to, which
- * is the part that was worth looking at anyway ("Hour · Second Class").
+ * Folded, a card is its own title bar and nothing else.
  *
  * Open by default on a screen with the height for it, folded on one without.
  * Deliberately not remembered between visits: the map is opened to answer a
@@ -18,17 +17,13 @@ import { useEffect, useState } from 'react'
  */
 export default function MapCard({
   title,
-  summary,
   action,
   children,
   className = '',
   openClassName = '',
-  dropdown = false,
 }: {
   title: string
-  /** What the card is currently set to, shown only when it is folded. */
-  summary?: string
-  /** A control that belongs in the header — 'Edit hours'. Hidden when folded. */
+  /** A control that belongs in the header. Hidden when the card is folded. */
   action?: React.ReactNode
   children: React.ReactNode
   className?: string
@@ -38,18 +33,6 @@ export default function MapCard({
    * is no reason for it to reserve the width of the list it is hiding.
    */
   openClassName?: string
-  /**
-   * Open downwards as a panel of its own width instead of growing the card.
-   *
-   * The summary stays visible while open in this mode, since the chip in the bar
-   * is the only thing on screen saying which hour is showing.
-   *
-   * For a card living in the top bar, where the space is horizontal: the Hour
-   * card is a chip 130px wide there, and its contents — the hour pills, and for
-   * an admin the whole hours editor — do not fit in 130px. Unfolded it hangs
-   * below the bar at a usable width and the bar does not move.
-   */
-  dropdown?: boolean
 }) {
   const [open, setOpen] = useState(true)
   /** Null until measured, so the first paint is not the wrong state. */
@@ -87,23 +70,13 @@ export default function MapCard({
           <span className="text-[11px] font-medium tracking-[0.08em] text-neutral-500 uppercase">
             {title}
           </span>
-          {(!shown || dropdown) && summary && (
-            <span className="min-w-0 flex-1 truncate text-[11px] text-neutral-800">{summary}</span>
-          )}
         </button>
         {shown && action && <div className="shrink-0 pr-1.5">{action}</div>}
       </div>
 
-      {shown &&
-        (dropdown ? (
-          // Its own card below the header, and scrolling inside itself: the
-          // hours editor is taller than a phone held sideways.
-          <div className="absolute top-full left-0 z-20 mt-1 max-h-[70dvh] w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain rounded-lg border border-neutral-200 bg-white p-2 shadow-lg">
-            {children}
-          </div>
-        ) : (
-          <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-2">{children}</div>
-        ))}
+      {shown && (
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-2 pb-2">{children}</div>
+      )}
     </div>
   )
 }

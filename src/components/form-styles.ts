@@ -8,6 +8,16 @@
 export const field =
   'mt-1 w-full rounded-md border border-neutral-300 px-2.5 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-900 sm:py-2 sm:text-sm'
 
+/**
+ * The same field in a narrow column: two of them side by side in the hours
+ * editor, which is a 288px panel floating over the map. A native `time` input
+ * carries its own intrinsic width — the digits plus the clock button — and at
+ * the standard padding that width is wider than half the panel, so the control
+ * spilled out through the side of it.
+ */
+export const fieldTight =
+  'mt-1 w-full min-w-0 rounded-md border border-neutral-300 px-1.5 py-2.5 text-base text-neutral-900 outline-none focus:border-neutral-900 sm:py-2 sm:text-sm'
+
 export const labelCls = 'block text-xs font-medium text-neutral-700'
 
 /** 44px minimum hit area on touch, compact again at `sm`. */

@@ -381,7 +381,10 @@ export default function BuildingMap({
           the reading order again.
         */}
         <div className="flex flex-wrap items-start gap-2">
-          <div className="pointer-events-auto order-1 w-[8.5rem] shrink-0 sm:w-[13rem]">
+          {/* Sized by its own pills rather than a fixed width: two named hours
+              and 'Edit hours' are narrower than the chip this used to be, and a
+              ward with four of them is wider. */}
+          <div className="pointer-events-auto order-1">
             <SlotSwitcher
               slots={data.slots}
               activeId={slotId}
