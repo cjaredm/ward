@@ -27,6 +27,19 @@ const PAD_TOP = 60
 const PAD_RIGHT = 24
 const PAD_BOTTOM = 32
 
+/**
+ * Vacant callings, in the same red the ward map uses for an empty address.
+ *
+ * They were amber before and disappeared into a chart that is already six
+ * organization colours deep. A vacancy is the one thing on this page somebody
+ * is looking for, so it gets a colour nothing else uses and a border that
+ * creeps — a slow crawl reads as "unfinished" from across the room without
+ * flashing at anybody reading a name next to it.
+ */
+const VACANT_STROKE = '#ef4444'
+const VACANT_FILL = '#fef2f2'
+const VACANT_TEXT = '#dc2626'
+
 /** The "show on map" pill in an organization's header strip. */
 const MAP_BTN_W = 62
 const MAP_BTN_H = 20
@@ -35,6 +48,34 @@ const MAP_BTN_H = 20
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
 }
+
+/**
+ * How long the chart takes to travel to whatever was just opened, and the
+ * smallest scale it will shrink to in order to fit it.
+ *
+ * Opening an organization rewrites the whole layout — every block below it
+ * shifts — so without this the thing you tapped is somewhere else on a chart
+ * that is several screens wide, and you go hunting for it. The floor on the
+ * scale is there because a fully open Primary is taller than any phone: past
+ * that point the names are grey pixels, so the view stops shrinking and shows
+ * the top of the block instead.
+ */
+const GLIDE_MS = 380
+const MIN_FOCUS_K = 0.35
+/** Never blown up past this on the way in, however small the thing opened is. */
+const MAX_FOCUS_K = 1
+
+/** What the chart should travel to once the layout has been redrawn. */
+type Focus = { kind: 'org'; key: string } | { kind: 'node'; id: string }
+
+/** A box and everything under it, for framing a sub-heading that was opened. */
+function subtree(node: TreeNode, into = new Set<string>()): Set<string> {
+  into.add(node.id)
+  for (const c of node.children) subtree(c, into)
+  return into
+}
+
+const easeOut = (t: number) => 1 - (1 - t) ** 3
 
 export default function OrgChartGraph({
   roots,
@@ -58,17 +99,33 @@ export default function OrgChartGraph({
     orgs: new Set(orgsIn(roots).filter((key) => key !== 'bishopric')),
     nodes: new Set<string>(),
   }))
+  /**
+   * Whether the reporting lines are drawn.
+   *
+   * Packed by default: the page is opened to find an organization far more often
+   * than to read who answers to whom, and packed is that view — the same boxes on
+   * a third of the page, no dragging to reach the bottom of the ward. The lines
+   * are one tap away for the times the structure is the question.
+   */
+  const [connected, setConnected] = useState(false)
   const [view, setView] = useState({ x: 0, y: 0, k: 1 })
   const [selected, setSelected] = useState<string | null>(null)
   const frame = useRef<HTMLDivElement>(null)
   const toolbar = useRef<HTMLDivElement>(null)
+  /** The current view, readable from a callback without re-binding it. */
+  const viewRef = useRef(view)
+  viewRef.current = view
+  /** What the next layout should be scrolled to, set by the box that was tapped. */
+  const focus = useRef<Focus | null>(null)
+  /** The in-flight glide, so a drag or a second tap cuts it off. */
+  const gliding = useRef<number | null>(null)
   /** Active pointers, so one finger pans and two pinch. */
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const pinch = useRef<{ distance: number; k: number } | null>(null)
 
   const { nodes, edges, clusters, width, height } = useMemo(
-    () => layout(roots, collapsed),
-    [roots, collapsed],
+    () => layout(roots, collapsed, connected),
+    [roots, collapsed, connected],
   )
 
   /**
@@ -82,8 +139,15 @@ export default function OrgChartGraph({
     return Math.max(PAD_TOP, bar + 24)
   }, [])
 
+  /** Stop the chart travelling — a drag or a wheel is the user taking over. */
+  const halt = useCallback(() => {
+    if (gliding.current !== null) cancelAnimationFrame(gliding.current)
+    gliding.current = null
+  }, [])
+
   /** Scale and offset that fit the whole chart in the frame. */
   const fit = useCallback(() => {
+    halt()
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
     const top = topPad()
@@ -93,7 +157,7 @@ export default function OrgChartGraph({
       1,
     )
     setView({ x: PAD_LEFT, y: top, k })
-  }, [width, height, topPad])
+  }, [width, height, topPad, halt])
 
   /**
    * The opening view: the chart at full size, top-left corner in the frame, which
@@ -106,6 +170,7 @@ export default function OrgChartGraph({
    * which is what the frame is for.
    */
   const readable = useCallback(() => {
+    halt()
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
     // Every block is laid out to the same width, and the leftmost sits one
@@ -116,15 +181,123 @@ export default function OrgChartGraph({
     const originX = clusters.length ? Math.min(...clusters.map((c) => c.x)) : 0
     const k = Math.min(1, (box.width - PAD_LEFT - PAD_RIGHT) / blockW)
     setView({ x: PAD_LEFT - originX * k, y: topPad(), k })
-  }, [clusters, topPad])
+  }, [clusters, topPad, halt])
 
   useEffect(() => {
-    readable()
+    // Packed opens fitted — it is laid out to fit a screen, so it is worth seeing
+    // whole. Connected is taller than any screen, so it opens at full size on the
+    // bishopric instead.
+    if (connected) readable()
+    else fit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots])
 
+  /**
+   * Switching modes rewrites the whole page, so the view is re-fitted rather than
+   * left where it was — the patch of chart under the frame in one mode is a
+   * different organization in the other, which reads as the chart having jumped.
+   */
+  const firstLayout = useRef(true)
+  useEffect(() => {
+    if (firstLayout.current) {
+      firstLayout.current = false
+      return
+    }
+    if (connected) readable()
+    else fit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected])
+
+  /** Slide and scale the chart to a target view over GLIDE_MS. */
+  const glide = useCallback(
+    (to: { x: number; y: number; k: number }) => {
+      halt()
+      const from = viewRef.current
+      const still =
+        typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (still) {
+        setView(to)
+        return
+      }
+      const t0 = performance.now()
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / GLIDE_MS)
+        const e = easeOut(t)
+        setView({
+          x: from.x + (to.x - from.x) * e,
+          y: from.y + (to.y - from.y) * e,
+          k: from.k + (to.k - from.k) * e,
+        })
+        gliding.current = t < 1 ? requestAnimationFrame(step) : null
+      }
+      gliding.current = requestAnimationFrame(step)
+    },
+    [halt],
+  )
+
+  /**
+   * Put a rectangle of the drawing in the middle of the frame.
+   *
+   * Anything too big to fit at MIN_FOCUS_K is pinned to its top-left corner
+   * instead of centred, because the top of a block is the part worth reading —
+   * centring a Primary that is three screens tall shows its middle.
+   */
+  const frameOn = useCallback(
+    (box: { x: number; y: number; w: number; h: number }) => {
+      const rect = frame.current?.getBoundingClientRect()
+      if (!rect) return
+      const top = topPad()
+      const availW = rect.width - PAD_LEFT - PAD_RIGHT
+      const availH = rect.height - top - PAD_BOTTOM
+      const k = Math.max(
+        MIN_FOCUS_K,
+        Math.min(MAX_FOCUS_K, availW / box.w, availH / box.h),
+      )
+      const x =
+        box.w * k <= availW ? PAD_LEFT + (availW - box.w * k) / 2 - box.x * k : PAD_LEFT - box.x * k
+      const y = box.h * k <= availH ? top + (availH - box.h * k) / 2 - box.y * k : top - box.y * k
+      glide({ x, y, k })
+    },
+    [glide, topPad],
+  )
+
+  /**
+   * Travel to whatever was just opened or folded, once the new layout exists.
+   *
+   * Runs off the layout rather than off the click, because the click only knows
+   * what was tapped — where it ended up is not decided until every block has
+   * been re-placed around it.
+   */
+  useEffect(() => {
+    const want = focus.current
+    focus.current = null
+    if (!want) return
+
+    if (want.kind === 'org') {
+      const c = clusters.find((c) => c.key === want.key)
+      if (c) frameOn(c)
+      return
+    }
+
+    const ids = nodes.find((p) => p.node.id === want.id)
+    if (!ids) return
+    const family = subtree(ids.node)
+    const shown = nodes.filter((p) => family.has(p.node.id))
+    const x = Math.min(...shown.map((p) => p.x))
+    const y = Math.min(...shown.map((p) => p.y))
+    frameOn({
+      x,
+      y,
+      w: Math.max(...shown.map((p) => p.x + NODE_W)) - x,
+      h: Math.max(...shown.map((p) => p.y + NODE_H)) - y,
+    })
+    // frameOn is stable; the layout arrays are the real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, clusters])
+
   /** Open the organization a box belongs to, or fold it again from its leader. */
   function toggleOrg(key: string) {
+    focus.current = { kind: 'org', key }
     setCollapsed((prev) => {
       const orgs = new Set(prev.orgs)
       if (orgs.has(key)) orgs.delete(key)
@@ -135,6 +308,7 @@ export default function OrgChartGraph({
 
   /** Open or close one box inside an organization that is already open. */
   function toggleNode(id: string) {
+    focus.current = { kind: 'node', id }
     setCollapsed((prev) => {
       const nodes = new Set(prev.nodes)
       if (nodes.has(id)) nodes.delete(id)
@@ -161,10 +335,12 @@ export default function OrgChartGraph({
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
     e.preventDefault()
+    halt()
     zoomAt(Math.exp(-e.deltaY * 0.002), e.clientX - box.left, e.clientY - box.top)
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    halt()
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
   }
@@ -195,6 +371,8 @@ export default function OrgChartGraph({
     if (pointers.current.size < 2) pinch.current = null
   }
 
+  useEffect(() => halt, [halt])
+
   const expandAll = () => setCollapsed({ orgs: new Set(), nodes: new Set() })
   const collapseAll = () => setCollapsed({ orgs: new Set(orgsIn(roots)), nodes: new Set() })
 
@@ -214,6 +392,29 @@ export default function OrgChartGraph({
         {modes && <div className="pointer-events-auto">{modes}</div>}
 
         <div className="pointer-events-auto flex flex-wrap justify-end gap-1.5 text-xs">
+          {/* Its own button rather than one more in the row below: this one has
+              a state — it is the only control here that changes what the chart
+              is, not where it is looked at from — so it is drawn pressed. */}
+          <button
+            type="button"
+            aria-pressed={connected}
+            title={
+              connected
+                ? 'Hide the reporting lines and pack the organizations together'
+                : 'Show the reporting lines'
+            }
+            onClick={() => setConnected((on) => !on)}
+            className={`min-h-8 rounded-md border px-2 py-1.5 font-medium shadow-sm ${
+              connected
+                ? 'border-neutral-900 bg-neutral-900 text-white'
+                : 'border-neutral-300 bg-white text-neutral-700 hover:border-neutral-900'
+            }`}
+          >
+            <span className="sm:hidden">{connected ? 'Linked' : 'Packed'}</span>
+            <span className="hidden sm:inline">
+              {connected ? 'Connected' : 'Packed'}
+            </span>
+          </button>
           {[
             { label: '−', title: 'Zoom out', run: () => zoomAt(0.8, ...centre()) },
             { label: '+', title: 'Zoom in', run: () => zoomAt(1.25, ...centre()) },
@@ -254,6 +455,22 @@ export default function OrgChartGraph({
         onPointerCancel={onPointerUp}
       >
         <svg className="h-full w-full select-none" role="img" aria-label="Ward org chart">
+          {/* Marching ants on the vacancies. The dash pattern is short and the
+              crawl is slow enough to be movement you notice rather than motion
+              you have to look away from, and it stops dead for anybody who has
+              asked the OS for less of it. */}
+          <style>{`
+            @keyframes ward-vacant-crawl {
+              to { stroke-dashoffset: -18; }
+            }
+            .ward-vacant {
+              stroke-dasharray: 6 3;
+              animation: ward-vacant-crawl 2.4s linear infinite;
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .ward-vacant { animation: none; }
+            }
+          `}</style>
           <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
             {/* One shape per organization, behind everything, so a block reads as a
                 single thing at any zoom. The bishopric is drawn heavier. */}
@@ -371,21 +588,22 @@ export default function OrgChartGraph({
                     width={NODE_W}
                     height={NODE_H}
                     rx={8}
-                    fill={isGroup ? '#fafafa' : vacant ? '#fffbeb' : '#ffffff'}
+                    fill={isGroup ? '#fafafa' : vacant ? VACANT_FILL : '#ffffff'}
                     stroke={
-                      active
-                        ? '#171717'
-                        : vacant
-                          ? '#fcd34d'
+                      vacant
+                        ? VACANT_STROKE
+                        : active
+                          ? '#171717'
                           : unlinked
                             ? '#c7d2fe'
                             : lead
                               ? tint(p.cluster)
                               : '#e5e5e5'
                     }
-                    strokeOpacity={lead && !active ? 0.7 : 1}
-                    strokeWidth={active ? 2 : 1}
+                    strokeOpacity={lead && !active && !vacant ? 0.7 : 1}
+                    strokeWidth={active || vacant ? 2 : 1}
                     strokeDasharray={isGroup ? '4 3' : undefined}
+                    className={vacant ? 'ward-vacant' : undefined}
                   />
                   {/* A face on every calling box, so a name is recognised before
                       it is read. Groups get none — they are sub-headings, not
@@ -405,7 +623,7 @@ export default function OrgChartGraph({
                     y={23}
                     fontSize={13}
                     fontWeight={600}
-                    fill={unlinked ? '#6366f1' : '#171717'}
+                    fill={vacant ? VACANT_TEXT : unlinked ? '#6366f1' : '#171717'}
                   >
                     {clip(isGroup ? p.node.title : (p.node.person ?? 'Vacant'), isGroup ? 26 : 21)}
                   </text>
@@ -413,7 +631,7 @@ export default function OrgChartGraph({
                     x={isGroup ? 12 : TEXT_X}
                     y={41}
                     fontSize={11}
-                    fill={vacant ? '#b45309' : '#737373'}
+                    fill={vacant ? VACANT_TEXT : '#737373'}
                   >
                     {clip(
                       isGroup ? `${p.node.children.length} callings` : p.node.title,

@@ -165,7 +165,7 @@ export default function OrgChartView({
                                   </>
                                 ) : (
                                   <>
-                                    <span className="text-amber-700">Vacant</span>
+                                    <span className="font-medium text-red-600">Vacant</span>
                                     <Avatar name={null} size={28} />
                                   </>
                                 )}

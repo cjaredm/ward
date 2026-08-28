@@ -1,6 +1,8 @@
 'use client'
 
 import { useState } from 'react'
+import LcrSteps from './LcrSteps'
+import FilePicker from './FilePicker'
 
 type Plan = {
   unitName: string | null
@@ -84,23 +86,34 @@ export default function MembersImport() {
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-neutral-900">Member list</h2>
+        <h2 className="flex items-center text-base font-semibold text-neutral-900">
+          <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">1</span>
+          Member list
+        </h2>
         <p className="mt-1 text-sm text-neutral-600">
-          In LCR: Reports → Member List → Export to PDF, with the address column on. Households and
-          people are only ever added — nothing is moved, edited or deleted.
+          Names and addresses. Households and people are only ever added — nothing is moved, edited
+          or deleted.
         </p>
 
+        <LcrSteps
+          href="https://lcr.churchofjesuschrist.org/mlt/records/member-list?lang=eng"
+          linkLabel="LCR → Member List"
+          steps={[
+            'Deselect every column. The address comes through on its own; the rest only crowds the page and pushes the address column around.',
+            'Print → save as PDF.',
+          ]}
+          columns="Name / Address"
+        />
+
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null)
+          <FilePicker
+            file={file}
+            onPick={(f) => {
+              setFile(f)
               setPlan(null)
               setApplied(false)
               setError(null)
             }}
-            className="text-sm text-neutral-700"
           />
           <button
             type="button"

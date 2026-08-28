@@ -44,7 +44,8 @@ export default async function OrgChartPage() {
           <div>
             <h1 className="text-lg font-semibold text-neutral-900">Org chart</h1>
             <p className="text-sm text-neutral-500">
-              {held} calling{held === 1 ? '' : 's'} filled · {rows.length - held} vacant
+              {held} calling{held === 1 ? '' : 's'} filled ·{' '}
+              <span className="font-medium text-red-600">{rows.length - held} vacant</span>
               {unlinked > 0 && ` · ${unlinked} held by someone not in the ward records yet`}
             </p>
           </div>

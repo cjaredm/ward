@@ -52,6 +52,25 @@ const CLUSTER_GAP = 44
 const MAX_BAND_W = 2600
 
 /**
+ * Packed mode: every organization on the page, no lines, no bands.
+ *
+ * The connected chart spends most of its space on the reporting lines — the
+ * corridors between blocks, and the empty band under every level so a line has
+ * somewhere to run. That is the right trade when the question is "who answers to
+ * whom", and the wrong one when the question is "where is the Primary" — then it
+ * is a mostly-empty page you have to drag across. Packed mode drops the lines
+ * and closes the gaps: blocks fall into the shortest column, a hair apart.
+ */
+const PACKED_GAP = 16
+
+/**
+ * The shape packed mode aims for, width over height. Roughly a landscape screen,
+ * so 'Fit' lands on something readable instead of a strip three blocks wide or a
+ * single tall column.
+ */
+const PACKED_ASPECT = 1.6
+
+/**
  * How far from its parent a block may be placed, in columns, given how many child
  * organizations that parent has.
  *
@@ -217,7 +236,12 @@ type Block = {
   laneBelow: number
 }
 
-export function layout(roots: TreeNode[], collapse: Collapse): Layout {
+export function layout(
+  roots: TreeNode[],
+  collapse: Collapse,
+  /** False to drop the reporting lines and pack the blocks together. */
+  connected = true,
+): Layout {
   const pres = presidencies(roots)
 
   // Everything visible, in report order, parents before children. A box hidden
@@ -354,93 +378,100 @@ export function layout(roots: TreeNode[], collapse: Collapse): Layout {
   // Blocks onto the grid, level by level. Children of the same block stay near
   // it: within a level, blocks are ordered by where their parent block landed.
   const boxes = new Map<string, ClusterBox>()
-  const levels = [...new Set(order.map((k) => depthOf.get(k)!))].sort((a, b) => a - b)
+  if (connected) {
+    const levels = [...new Set(order.map((k) => depthOf.get(k)!))].sort((a, b) => a - b)
 
-  /** Where a block ended up across the page, for ordering the band below it. */
-  const acrossOf = (key: string) => boxes.get(key)?.x ?? Number.MAX_SAFE_INTEGER
+    /** Where a block ended up across the page, for ordering the band below it. */
+    const acrossOf = (key: string) => boxes.get(key)?.x ?? Number.MAX_SAFE_INTEGER
 
-  /** Which column a block ended up in, for pulling its children towards it. */
-  const colOf = (key: string) => blocks.get(key)?.col ?? 0
+    /** Which column a block ended up in, for pulling its children towards it. */
+    const colOf = (key: string) => blocks.get(key)?.col ?? 0
 
-  // A margin all round, so the blocks in the first column and the first band have
-  // a corridor on the outside of them as well.
-  const ORIGIN = CLUSTER_GAP
+    // A margin all round, so the blocks in the first column and the first band have
+    // a corridor on the outside of them as well.
+    const ORIGIN = CLUSTER_GAP
 
-  // Every column of the grid is the same width, which is what makes the corridors
-  // between them run clear from the top of the chart to the bottom.
-  const widest = Math.max(...[...blocks.values()].map((b) => b.w))
-  const gridCols = Math.max(1, Math.floor((MAX_BAND_W + CLUSTER_GAP) / (widest + CLUSTER_GAP)))
-  const colAt = (col: number) => ORIGIN + col * (widest + CLUSTER_GAP)
+    // Every column of the grid is the same width, which is what makes the corridors
+    // between them run clear from the top of the chart to the bottom.
+    const widest = Math.max(...[...blocks.values()].map((b) => b.w))
+    const gridCols = Math.max(1, Math.floor((MAX_BAND_W + CLUSTER_GAP) / (widest + CLUSTER_GAP)))
+    const colAt = (col: number) => ORIGIN + col * (widest + CLUSTER_GAP)
 
-  let bandBottom = 0
+    let bandBottom = 0
 
-  for (const level of levels) {
-    const keys = order.filter((k) => depthOf.get(k) === level)
+    for (const level of levels) {
+      const keys = order.filter((k) => depthOf.get(k) === level)
 
-    /** How many of this band's organizations answer to the same one. */
-    const brood = new Map<string, number>()
-    for (const key of keys) {
-      const parent = above.get(key) ?? ''
-      brood.set(parent, (brood.get(parent) ?? 0) + 1)
-    }
-    const siblings = (key: string) => brood.get(above.get(key) ?? '') ?? 1
+      /** How many of this band's organizations answer to the same one. */
+      const brood = new Map<string, number>()
+      for (const key of keys) {
+        const parent = above.get(key) ?? ''
+        brood.set(parent, (brood.get(parent) ?? 0) + 1)
+      }
+      const siblings = (key: string) => brood.get(above.get(key) ?? '') ?? 1
 
-    // An only child goes first: it has one column it is allowed in, and a crowd
-    // of cousins spreading out of the column next door would otherwise take the
-    // slot right under its parent.
-    keys.sort((a, b) => {
-      const pa = above.get(a)
-      const pb = above.get(b)
-      return (
-        siblings(a) - siblings(b) ||
-        (pa ? acrossOf(pa) : 0) - (pb ? acrossOf(pb) : 0) ||
-        order.indexOf(a) - order.indexOf(b)
-      )
-    })
+      // An only child goes first: it has one column it is allowed in, and a crowd
+      // of cousins spreading out of the column next door would otherwise take the
+      // slot right under its parent.
+      keys.sort((a, b) => {
+        const pa = above.get(a)
+        const pb = above.get(b)
+        return (
+          siblings(a) - siblings(b) ||
+          (pa ? acrossOf(pa) : 0) - (pb ? acrossOf(pb) : 0) ||
+          order.indexOf(a) - order.indexOf(b)
+        )
+      })
 
-    // A band per level. Each block drops into the column that best trades off
-    // being near its parent against how full that column already is.
-    const bandTop = boxes.size === 0 ? 0 : bandBottom + CLUSTER_GAP * 1.5
-    const nextY = new Array<number>(gridCols).fill(bandTop)
+      // A band per level. Each block drops into the column that best trades off
+      // being near its parent against how full that column already is.
+      const bandTop = boxes.size === 0 ? 0 : bandBottom + CLUSTER_GAP * 1.5
+      const nextY = new Array<number>(gridCols).fill(bandTop)
 
-    for (const key of keys) {
-      const block = blocks.get(key)!
-      const parent = above.get(key)
-      const want = parent ? colOf(parent) : 0
-      const reach = reachFor(siblings(key))
-      const from = Math.max(0, want - reach)
-      const to = Math.min(gridCols - 1, want + reach)
+      for (const key of keys) {
+        const block = blocks.get(key)!
+        const parent = above.get(key)
+        const want = parent ? colOf(parent) : 0
+        const reach = reachFor(siblings(key))
+        const from = Math.max(0, want - reach)
+        const to = Math.min(gridCols - 1, want + reach)
 
-      // The emptiest column within reach of the parent, and the nearest to it of
-      // any that are equally empty.
-      let col = from
-      for (let i = from + 1; i <= to; i++) {
-        if (
-          nextY[i] < nextY[col] ||
-          (nextY[i] === nextY[col] && Math.abs(i - want) < Math.abs(col - want))
-        ) {
-          col = i
+        // The emptiest column within reach of the parent, and the nearest to it of
+        // any that are equally empty.
+        let col = from
+        for (let i = from + 1; i <= to; i++) {
+          if (
+            nextY[i] < nextY[col] ||
+            (nextY[i] === nextY[col] && Math.abs(i - want) < Math.abs(col - want))
+          ) {
+            col = i
+          }
         }
+
+        block.col = col
+        block.laneIn = colAt(col) - CLUSTER_GAP / 2
+        block.laneOut = colAt(col) + widest + CLUSTER_GAP / 2
+        boxes.set(key, {
+          key,
+          x: colAt(col),
+          y: nextY[col],
+          w: block.w,
+          h: block.h,
+          depth: level,
+          count: block.placed.length,
+          folded: collapse.orgs.has(key),
+        })
+        nextY[col] += block.h + CLUSTER_GAP
       }
 
-      block.col = col
-      block.laneIn = colAt(col) - CLUSTER_GAP / 2
-      block.laneOut = colAt(col) + widest + CLUSTER_GAP / 2
-      boxes.set(key, {
-        key,
-        x: colAt(col),
-        y: nextY[col],
-        w: block.w,
-        h: block.h,
-        depth: level,
-        count: block.placed.length,
-        folded: collapse.orgs.has(key),
-      })
-      nextY[col] += block.h + CLUSTER_GAP
+      bandBottom = Math.max(...nextY) - CLUSTER_GAP
+      for (const key of keys) blocks.get(key)!.laneBelow = bandBottom + CLUSTER_GAP * 0.7
     }
-
-    bandBottom = Math.max(...nextY) - CLUSTER_GAP
-    for (const key of keys) blocks.get(key)!.laneBelow = bandBottom + CLUSTER_GAP * 0.7
+  } else {
+    // Packed: no lines to route, so no corridors and no bands. Blocks drop into
+    // whichever column is shortest, in report order, which keeps the bishopric
+    // top-left and everything else roughly where the connected chart had it.
+    pack(order, blocks, depthOf, collapse, boxes)
   }
 
   // Block-relative positions become page positions.
@@ -459,7 +490,7 @@ export function layout(roots: TreeNode[], collapse: Collapse): Layout {
   // as a bundle of separate lines rather than one thick smear.
   type Pending = { id: string; from: Placed; to: Placed; cross: boolean; lane: string }
   const pending: Pending[] = []
-  for (const v of visits) {
+  for (const v of connected ? visits : []) {
     if (!v.parent) continue
     const from = byId.get(v.parent.id)
     const to = byId.get(v.node.id)
@@ -505,6 +536,84 @@ export function layout(roots: TreeNode[], collapse: Collapse): Layout {
     width: clusters.reduce((max, b) => Math.max(max, b.x + b.w), NODE_W) + CLUSTER_GAP,
     height: clusters.reduce((max, b) => Math.max(max, b.y + b.h), NODE_H) + CLUSTER_GAP,
   }
+}
+
+/**
+ * Packed mode's placement: masonry, no hierarchy.
+ *
+ * Blocks are taken in report order — bishopric first — and each one dropped into
+ * the column that is currently shortest, so a tall Primary next to a two-row
+ * Nursery leaves no white hole under the short one. Column widths are measured
+ * from what actually landed in them rather than fixed to the widest block on the
+ * page, which is where most of the saved space comes from: an organization wide
+ * enough to have wrapped into two inner columns no longer sets the gutter for
+ * every single-column block beside it.
+ *
+ * The number of columns is chosen by trying them all and keeping whichever comes
+ * closest to PACKED_ASPECT — there are a couple of dozen organizations in a ward
+ * at most, so the search is free and it beats any fixed count across the range
+ * from 'everything folded' to 'expand all'.
+ */
+function pack(
+  order: string[],
+  blocks: Map<string, Block>,
+  depthOf: Map<string, number>,
+  collapse: Collapse,
+  into: Map<string, ClusterBox>,
+): void {
+  /** One attempt: blocks into `cols` columns, and the page it comes out as. */
+  const attempt = (cols: number) => {
+    const heights = new Array<number>(cols).fill(0)
+    const columns: string[][] = Array.from({ length: cols }, () => [])
+    for (const key of order) {
+      let pick = 0
+      for (let i = 1; i < cols; i++) if (heights[i] < heights[pick]) pick = i
+      columns[pick].push(key)
+      heights[pick] += blocks.get(key)!.h + PACKED_GAP
+    }
+    const widths = columns.map((col) =>
+      col.length ? Math.max(...col.map((k) => blocks.get(k)!.w)) : 0,
+    )
+    const used = widths.filter((w) => w > 0)
+    return {
+      columns,
+      widths,
+      w: used.reduce((sum, w) => sum + w, 0) + PACKED_GAP * Math.max(0, used.length - 1),
+      h: Math.max(...heights) - PACKED_GAP,
+    }
+  }
+
+  let best = attempt(1)
+  for (let cols = 2; cols <= order.length; cols++) {
+    const tried = attempt(cols)
+    if (
+      Math.abs(tried.w / tried.h - PACKED_ASPECT) < Math.abs(best.w / best.h - PACKED_ASPECT)
+    ) {
+      best = tried
+    }
+  }
+
+  // A margin all round, matching what the connected chart leaves.
+  let x = PACKED_GAP
+  best.columns.forEach((col, i) => {
+    if (!col.length) return
+    let y = PACKED_GAP
+    for (const key of col) {
+      const block = blocks.get(key)!
+      into.set(key, {
+        key,
+        x,
+        y,
+        w: block.w,
+        h: block.h,
+        depth: depthOf.get(key)!,
+        count: block.placed.length,
+        folded: collapse.orgs.has(key),
+      })
+      y += block.h + PACKED_GAP
+    }
+    x += best.widths[i] + PACKED_GAP
+  })
 }
 
 /**

@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { orgLabel, orgPath } from '@/lib/orgs'
+import LcrSteps from './LcrSteps'
+import FilePicker from './FilePicker'
 
 type PlanItem = {
   org: string
@@ -110,23 +112,34 @@ export default function CallingsImport() {
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
-        <h2 className="text-base font-semibold text-neutral-900">Callings report</h2>
+        <h2 className="flex items-center text-base font-semibold text-neutral-900">
+          <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-neutral-900 text-xs font-semibold text-white">2</span>
+          Callings report
+        </h2>
         <p className="mt-1 text-sm text-neutral-600">
-          In LCR: Reports → Organizations and Callings → Export to PDF. Upload it here to see what
-          would change before anything is written.
+          Who holds which calling. Upload it here to see what would change before anything is
+          written.
         </p>
 
+        <LcrSteps
+          href="https://lcr.churchofjesuschrist.org/mlt/orgs?lang=eng"
+          linkLabel="LCR → Organizations and Callings"
+          steps={[
+            'Print, and leave the report as callings — do not switch it to members.',
+            'Save as PDF.',
+          ]}
+          columns="Calling / Name"
+        />
+
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] ?? null)
+          <FilePicker
+            file={file}
+            onPick={(f) => {
+              setFile(f)
               setPlan(null)
               setApplied(false)
               setError(null)
             }}
-            className="text-sm text-neutral-700"
           />
           <button
             type="button"

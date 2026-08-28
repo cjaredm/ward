@@ -92,9 +92,9 @@ function audit(ward: string, rows: CallingRecord[], failures: string[]): void {
   console.log(`\n${ward}`)
   const roots = buildOrgTree(rows)
 
-  function check(name: string, collapsed: Collapse) {
+  function check(name: string, collapsed: Collapse, connected = true) {
     const label = `${ward}, ${name}`
-    const { nodes, edges, clusters, width, height } = layout(roots, collapsed)
+    const { nodes, edges, clusters, width, height } = layout(roots, collapsed, connected)
     console.log(
       `${label}: ${nodes.length} boxes in ${clusters.length} orgs, ${edges.length} lines, ${width}×${height}`,
     )
@@ -188,6 +188,13 @@ function audit(ward: string, rows: CallingRecord[], failures: string[]): void {
       }
     }
 
+    // Packed mode draws no lines at all — that is the whole of what it is — so
+    // the reachability rule below is a connected-mode rule.
+    if (!connected) {
+      if (edges.length > 0) failures.push(`${label}: packed mode drew ${edges.length} lines`)
+      return nodes
+    }
+
     // Every placed node is reachable by a line, except the roots.
     const rootIds = new Set(roots.map((r) => r.id))
     const withParent = new Set(edges.map((e) => e.to.node.id))
@@ -210,6 +217,27 @@ function audit(ward: string, rows: CallingRecord[], failures: string[]): void {
   const expanded = check('expanded', open)
   const folded = check('presidencies only', presidenciesOnly)
   const first = check('the opening view', opening)
+
+  // Packed mode holds the same boxes on less page. Every geometry rule above
+  // still applies — nothing overlaps, every box is inside its own organization —
+  // and on top of that it has to actually be tighter, or there is no reason for
+  // the switch to exist.
+  for (const [name, collapsed] of [
+    ['packed, expanded', open],
+    ['packed, the opening view', opening],
+  ] as const) {
+    const loose = layout(roots, collapsed, true)
+    const tight = layout(roots, collapsed, false)
+    check(name, collapsed, false)
+    if (tight.nodes.length !== loose.nodes.length) {
+      failures.push(`${ward}, ${name}: ${tight.nodes.length} boxes, connected has ${loose.nodes.length}`)
+    }
+    if (tight.width * tight.height >= loose.width * loose.height) {
+      failures.push(
+        `${ward}, ${name}: ${tight.width}×${tight.height} is no tighter than ${loose.width}×${loose.height}`,
+      )
+    }
+  }
 
   // A child organization belongs beside its parent. Several of them have to
   // spread out — a dozen cannot all share one column without the chart becoming a
