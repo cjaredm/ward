@@ -110,6 +110,41 @@ Sections live in one place — [src/lib/permissions.ts](src/lib/permissions.ts).
 adding an entry there and a route under `src/app/(app)/`; the dashboard card, the admin
 checkbox and the server-side gate all read from it.
 
+## Quick links
+
+The dashboard carries a short list of links to pages that are not part of this app — LCR, the
+ward calendar, a bishopric agenda. They belong to the ward rather than to each account, and only
+an admin can change them, but each one carries its own audience.
+
+- **Names only, until you press Edit.** The resting list is labels and nothing else — no
+  addresses, no audiences, no buttons. The label *is* the link, so printing a wrapped Google Docs
+  URL under each row said nothing the label had not. `Edit` in the section header turns on the
+  addresses, the share badges, the per-row buttons and the add form all at once; `Done` puts them
+  away.
+- **Edited in place, on the dashboard.** Add, rename, repoint, reshare or remove a link from the
+  section itself; there is no admin page for it. Four rows that change twice a year do not need
+  one. The Edit button only renders for an admin, and
+  [the routes](src/app/api/quick-links/route.ts) require one independently.
+- **A link is for everyone until it is narrowed.** "Only certain people" turns the picker on and
+  the link is then visible to exactly the accounts ticked — plus every admin, who see all of
+  them. The list is stored as rows in `quick_link_shares`, and no rows means everybody, so a
+  new account needs no backfill and an existing link never quietly closes.
+- **The filter is a `WHERE` clause, not a hidden row.** A link somebody may not see is never
+  read out of the database for them, so it is not in the HTML either. See `listQuickLinks` in
+  [src/lib/quick-links-query.ts](src/lib/quick-links-query.ts).
+- **A rename does not reopen a link.** `shared_with` is only rewritten when the PATCH sends it;
+  an absent field leaves the audience exactly as it was.
+- **Admins are not offered in the picker**, since they already see everything, and neither are
+  deactivated accounts. A share belonging to either is still stored, still counted in the row's
+  badge, and kept across a save.
+- **A missing scheme is fixed, not rejected.** Pasting `lcr.churchofjesuschrist.org` stores
+  `https://lcr.churchofjesuschrist.org/`. Anything that is not http(s) after that is refused —
+  see `normalizeUrl` in [src/lib/quick-links.ts](src/lib/quick-links.ts).
+- **Order is `sort`, in tens**, so a link can be dropped between two others without renumbering.
+  There is no UI for it yet; new links land at the end.
+
+Every change writes an `audit_log` row, the same as a household edit.
+
 ## Redrawing the ward boundary
 
 `geojson.json` is the source of truth for the boundary. To change it: edit the file, commit,

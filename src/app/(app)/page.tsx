@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { currentUser } from '@/lib/auth'
 import { visibleSections } from '@/lib/permissions'
+import { listQuickLinks, listShareCandidates } from '@/lib/quick-links-query'
+import QuickLinks from '@/components/QuickLinks'
 import TopNav from '@/components/TopNav'
 
 /**
@@ -14,6 +16,12 @@ export default async function DashboardPage() {
   if (!user) redirect('/login')
 
   const sections = visibleSections(user)
+  // Only an admin can change who a link is for, so only an admin is sent the
+  // list of accounts to choose from.
+  const [quickLinks, shareCandidates] = await Promise.all([
+    listQuickLinks(user),
+    user.is_admin ? listShareCandidates() : Promise.resolve([]),
+  ])
 
   return (
     <main className="min-h-dvh bg-neutral-50">
@@ -59,6 +67,12 @@ export default async function DashboardPage() {
             ))}
           </div>
         )}
+
+        <QuickLinks
+          initial={quickLinks}
+          canManage={user.is_admin}
+          people={shareCandidates}
+        />
 
         {user.is_admin && (
           <section className="mt-8">
