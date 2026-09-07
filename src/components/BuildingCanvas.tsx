@@ -75,6 +75,8 @@ export default function BuildingCanvas({
   draft,
   dimAssigned = false,
   hideClosed = false,
+  printRegion,
+  printWidthPx = 998,
   onSelect,
   onDraftChange,
   onReady,
@@ -101,6 +103,21 @@ export default function BuildingCanvas({
    * them away is what makes the rest legible.
    */
   hideClosed?: boolean
+  /**
+   * The rectangle of the drawing the printed page is of.
+   *
+   * Required, and used on every render rather than only while printing: the
+   * print SVG is always in the DOM so that the browser's own Cmd-P prints the
+   * same page the Print button does. Normally the building's own extent; the
+   * part of it on screen when somebody asked for this view.
+   */
+  printRegion: { x: number; y: number; w: number; h: number }
+  /**
+   * The width in pixels the region is expected to print at, which is what the
+   * label ladder is measured against. Only the ratio to `printRegion.w` matters:
+   * on wider paper the whole drawing, labels included, scales up together.
+   */
+  printWidthPx?: number
   onSelect: (key: string | null) => void
   onDraftChange: (next: Draft) => void
   onReady: (handle: CanvasHandle) => void
@@ -334,27 +351,18 @@ export default function BuildingCanvas({
     [rooms, assignments, availability, slotId, hideClosed],
   )
 
-  return (
-    <div
-      ref={frame}
-      className={`h-full w-full overflow-hidden ${
-        draft ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-      } touch-none`}
-      onWheel={onWheel}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onClick={onCanvasClick}
-    >
-      {/*
-        No viewBox on purpose. With one there are two transforms in play — the
-        viewBox fitting 2252x1183 into an arbitrary-aspect frame, and this pan and
-        zoom — and inverting only the second silently offsets every traced corner.
-        All the scaling lives in the <g> below, exactly as the org chart does it.
-      */}
-      <svg className="h-full w-full select-none" role="img" aria-label="Stake centre floorplan">
-        <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
+  /**
+   * The drawing: the walls, then every room over them.
+   *
+   * A function of the scale rather than markup in one place, because it is
+   * rendered twice — once into the interactive canvas at the zoom the window is
+   * showing, and once into the print SVG at the scale the paper will show it.
+   * Everything sized in constant screen pixels divides by `k`, and the label
+   * ladder is measured against it, so the two copies differ in exactly that one
+   * number and cannot otherwise drift apart.
+   */
+  const drawing = (k: number) => (
+    <>
           {/* The walls, as a static asset. pointer-events none so they can never
               swallow a tap meant for a room. */}
           <image
@@ -376,7 +384,7 @@ export default function BuildingCanvas({
             const label = fitRoomLabel(
               first?.title ?? null,
               room.name,
-              { w: box.w * view.k, h: box.h * view.k },
+              { w: box.w * k, h: box.h * k },
               selected || here.length > 0,
             )
             return (
@@ -386,7 +394,7 @@ export default function BuildingCanvas({
                   fill={paint.fill}
                   fillOpacity={paint.fillOpacity}
                   stroke={selected ? '#a9691a' : (ink ?? paint.stroke)}
-                  strokeWidth={(selected ? 2.4 : 1) / view.k}
+                  strokeWidth={(selected ? 2.4 : 1) / k}
                   className={closed ? 'cursor-default' : 'cursor-pointer'}
                   onClick={(e) => {
                     if (moved.current || draft) return
@@ -425,14 +433,14 @@ export default function BuildingCanvas({
                     textAnchor="middle"
                     // Constant screen size. Scaling the font to the room makes the
                     // cultural hall 80px and room 101 three pixels.
-                    fontSize={label.px / view.k}
+                    fontSize={label.px / k}
                     fill={ink ?? (closed ? '#737373' : '#3f3f46')}
                     fontWeight={first ? 600 : 500}
                     // A label is allowed to overhang its walls, so it is painted
                     // with a white outline underneath: it stays readable where it
                     // crosses a wall line or the room next door.
                     stroke="#fff"
-                    strokeWidth={2.5 / view.k}
+                    strokeWidth={2.5 / k}
                     paintOrder="stroke"
                     style={{ pointerEvents: 'none' }}
                   >
@@ -440,13 +448,17 @@ export default function BuildingCanvas({
                       <tspan
                         key={i}
                         x={anchor[0]}
-                        dy={i === 0 ? -((label.lines.length - 1) * label.px * 0.6) / view.k : (label.px * 1.2) / view.k}
+                        dy={
+                          i === 0
+                            ? -((label.lines.length - 1) * label.px * 0.6) / k
+                            : (label.px * 1.2) / k
+                        }
                       >
                         {line}
                       </tspan>
                     ))}
                     {here.length > 1 && (
-                      <tspan x={anchor[0]} dy={(label.px * 1.2) / view.k} fontWeight={400}>
+                      <tspan x={anchor[0]} dy={(label.px * 1.2) / k} fontWeight={400}>
                         {`+${here.length - 1} more`}
                       </tspan>
                     )}
@@ -460,7 +472,7 @@ export default function BuildingCanvas({
                     text={label.lines[0]}
                     extra={here.length > 1 ? `+${here.length - 1} more` : null}
                     px={label.px}
-                    k={view.k}
+                    k={k}
                     ink={ink ?? (closed ? '#737373' : '#3f3f46')}
                     bold={Boolean(first)}
                   />
@@ -468,9 +480,71 @@ export default function BuildingCanvas({
               </g>
             )
           })}
+    </>
+  )
 
-          {draft && <DraftOverlay draft={draft} k={view.k} onDraftChange={onDraftChange} dragging={dragging} />}
+  return (
+    <div
+      ref={frame}
+      className={`h-full w-full overflow-hidden ${
+        draft ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+      } touch-none`}
+      onWheel={onWheel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onClick={onCanvasClick}
+    >
+      {/*
+        The screen's drawing. No viewBox on purpose: with one there are two
+        transforms in play — the viewBox fitting 2252x1183 into an
+        arbitrary-aspect frame, and this pan and zoom — and inverting only the
+        second silently offsets every traced corner. All the scaling lives in the
+        <g>, exactly as the org chart does it.
+      */}
+      <svg
+        className="h-full w-full select-none print:hidden"
+        role="img"
+        aria-label="Stake centre floorplan"
+      >
+        <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
+          {drawing(view.k)}
+
+          {draft && (
+            <DraftOverlay
+              draft={draft}
+              k={view.k}
+              onDraftChange={onDraftChange}
+              dragging={dragging}
+            />
+          )}
         </g>
+      </svg>
+
+      {/*
+        The paper's drawing, and the reason a print is not a screenshot of the
+        one above.
+
+        Always in the DOM and always hidden on screen, so it is the same picture
+        whether the print came from the Print button or from the browser's own
+        Cmd-P. It was conditional before, which meant Cmd-P fell back to printing
+        the screen's canvas — laid out for the window, letterboxed inside it, and
+        scaled down to fit the paper with the window's empty margins still in it.
+        That is the white space down both sides of the page.
+
+        A viewBox is safe here for the reason it is not safe above: nothing on a
+        printed page is ever clicked, so there is no inverse transform to get
+        wrong. It also does the one thing the <g> transform cannot — size itself
+        to the paper rather than to a pixel count — which is why the plan now
+        reaches both edges of letter, A4 and tabloid alike.
+      */}
+      <svg
+        className="hidden h-full w-full select-none print:block"
+        aria-hidden
+        viewBox={`${printRegion.x} ${printRegion.y} ${printRegion.w} ${printRegion.h}`}
+      >
+        {drawing(printWidthPx / printRegion.w)}
       </svg>
     </div>
   )

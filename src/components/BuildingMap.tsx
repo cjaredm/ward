@@ -15,6 +15,7 @@ import {
 } from '@/lib/building'
 import {
   MIN_VERTICES,
+  bbox,
   canRemoveVertex,
   normalizeRing,
   removeVertex,
@@ -43,21 +44,49 @@ import { btnQuiet, btnSmall } from './form-styles'
  * fits on either without spilling onto a second page.
  */
 const PX_PER_IN = 96
-const PAGE_W = Math.round(10.2 * PX_PER_IN)
-const PAGE_H = Math.round(7.47 * PX_PER_IN)
-/** What the masthead takes off the top of it, and the colour key off the bottom. */
-const MASTHEAD_H = 52
-const KEY_H = 30
-/** The plan sheet: everything the masthead and the key do not want. */
-const PLAN_MAX_H = PAGE_H - MASTHEAD_H - KEY_H
 /**
- * The schedule sheet's plan: the whole building, as wide as the page.
+ * The width the plan's labels are sized for, in CSS pixels.
  *
- * The floorplan is 2252 x 1183 — nearly two to one, where the page is four to
- * three — so drawn to the full width it is only 5.4in tall. That is not wasted
- * space, it is what the list of rooms goes in.
+ * Roughly a letter page's printable width. Nothing about the layout depends on
+ * it being right — the plan sizes itself to whatever paper it lands on — it is
+ * only the scale the room-label ladder is measured at, so that a printed label
+ * is about the size of an on-screen one.
  */
-const SCHEDULE_PLAN_H = Math.round(PAGE_W / (FLOORPLAN.width / FLOORPLAN.height))
+const PAGE_W = Math.round(10.4 * PX_PER_IN)
+/**
+ * The tallest the plan may be.
+ *
+ * A cap, not a size, and it almost never bites: the building is very nearly two
+ * to one against a page that is three to two, so a plan drawn to the full width
+ * of the paper runs out of width long first. What it is for is a region somebody
+ * has zoomed into that is taller than it is wide, which without a cap would run
+ * onto a page of its own and take the room list with it.
+ *
+ * `vh` because a percentage would be a percentage of a box that has no height on
+ * paper, which is no limit at all — in a print context the viewport is the page,
+ * so 92vh is most of the sheet whatever size it is. The inch value is the belt
+ * and braces for a browser that resolves vh against the window instead: high
+ * enough that tabloid still gets a full-width plan, low enough to be a limit.
+ */
+const PLAN_MAX_H_CSS = 'min(92vh, 9.5in)'
+
+/** A rectangle of the drawing, in floorplan units. */
+type Box = { x: number; y: number; w: number; h: number }
+
+/**
+ * The part of `frame` that is also inside `limit`, or `limit` if they miss.
+ *
+ * What keeps a print from being mostly margin: the frame is nearly always
+ * showing empty drawing around the building, and only the overlap is worth a
+ * page.
+ */
+function overlap(frame: Box, limit: Box): Box {
+  const x0 = Math.max(frame.x, limit.x)
+  const y0 = Math.max(frame.y, limit.y)
+  const x1 = Math.min(frame.x + frame.w, limit.x + limit.w)
+  const y1 = Math.min(frame.y + frame.h, limit.y + limit.h)
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : limit
+}
 
 /** Which sheet is being prepared, or null when nothing is printing. */
 type PrintMode = 'plan' | 'schedule'
@@ -144,17 +173,18 @@ export default function BuildingMap({
    * lasts as long as the print dialog.
    */
   const [printMode, setPrintMode] = useState<PrintMode | null>(null)
-  /** The plan's box while printing, in paper pixels. */
-  const [printBox, setPrintBox] = useState<{ w: number; h: number } | null>(null)
+  /**
+   * The part of the building a print of "this view" is of, or null for all of it.
+   *
+   * Only ever set for the moment a prepared print takes; the region actually
+   * handed to the canvas is `planRegion` below, which is never null — the print
+   * drawing is in the DOM on every render so that the browser's own Cmd-P gets
+   * the same page as the button.
+   */
+  const [viewRegion, setViewRegion] = useState<Box | null>(null)
   /** The date the masthead prints. Set after mount — see the effect below. */
   const [printedOn, setPrintedOn] = useState('')
   const canvas = useRef<CanvasHandle | null>(null)
-  /**
-   * `printMode` for the beforeprint listener, which is registered once and has
-   * to know which sheet's height to measure against.
-   */
-  const printModeRef = useRef<PrintMode | null>(null)
-  printModeRef.current = printMode
 
   useEffect(() => {
     const mq = window.matchMedia('(pointer: coarse)')
@@ -263,6 +293,44 @@ export default function BuildingMap({
     return { usable, free: usable.filter((r) => !byRoom.has(r.key)) }
   }, [data.rooms, byRoom, availability, slotId])
 
+  /**
+   * The building itself, in floorplan units — the thing a print is of.
+   *
+   * Not an optimisation of the artboard: the outlines fill 98% of its width and
+   * 94% of its height, so FLOORPLAN.width/height would do nearly as well. What
+   * this is for is the frame. A window is a different shape from the drawing, so
+   * on screen the building is letterboxed inside it — and a print whose page box
+   * was cut to the *frame's* proportions reproduced that letterboxing faithfully,
+   * printing the screen's empty margins at 8% to 27% of the page's width. Fixing
+   * the region to the building instead means the page box is the shape of the
+   * building and the fit is exact on both axes.
+   *
+   * Every room, not the filtered ones: a crop that moved when somebody hid the
+   * hallways would print two sheets of the same hour at two different scales.
+   * The half-per-cent margin is only to keep an exterior wall off the very edge
+   * of the paper; the artboard has just 15 to 38 units of its own around the
+   * outlines, so there is nothing further out to make room for. Clamped to the
+   * artboard so a print can never run off the drawing.
+   */
+  const inkBox = useMemo<Box>(() => {
+    const artboard = { x: 0, y: 0, w: FLOORPLAN.width, h: FLOORPLAN.height }
+    const all = data.rooms.flatMap((r) => r.points)
+    if (all.length === 0) return artboard
+    const b = bbox(all)
+    const padX = b.w * 0.005
+    const padY = b.h * 0.005
+    return overlap(
+      { x: b.x - padX, y: b.y - padY, w: b.w + padX * 2, h: b.h + padY * 2 },
+      artboard,
+    )
+  }, [data.rooms])
+
+  /**
+   * What the printed plan is of: the whole building, or the part of it somebody
+   * asked to print. Never null, because the print drawing is always rendered.
+   */
+  const planRegion = viewRegion ?? inkBox
+
   /** The hour being shown, as a row rather than an id. */
   const activeSlot = useMemo(
     () => data.slots.find((s) => s.id === slotId) ?? null,
@@ -329,93 +397,37 @@ export default function BuildingMap({
   }, [data.assignments, slotId])
 
   /**
-   * Sizes the paper box to the frame that is about to be printed.
+   * Prints the sheet: the plan on page one, the hour's rooms on page two.
    *
-   * Runs on every print, the browser's own Cmd-P included — which is why it
-   * measures rather than assuming the prepared shape. Nothing here touches React
-   * state: an update from beforeprint lands after the browser has snapshotted
-   * the page, so this writes the custom properties the print stylesheet reads
-   * straight onto the document.
+   * `plan` is of whatever part of the building is on screen — the same zoom, the
+   * same hour, the same filters. `schedule` is always the whole building.
    *
-   * `scale` is what makes an unprepared print work at all. A 1400px-wide frame
-   * printed at one CSS pixel to the point would be fourteen inches across, so
-   * the frame keeps its own pixel size — the zoom transform and every label size
-   * inside it were fitted to exactly that — and the whole thing is scaled down
-   * into the box. Vector in, vector out; the sharpness is the printer's.
-   */
-  useEffect(() => {
-    const onBeforePrint = () => {
-      const frame = document.getElementById('building-plan')?.firstElementChild
-      if (!(frame instanceof HTMLElement)) return
-      const fw = frame.clientWidth
-      const fh = frame.clientHeight
-      if (!fw || !fh) return
-      const budget = printModeRef.current === 'schedule' ? SCHEDULE_PLAN_H : PLAN_MAX_H
-      const scale = Math.min(PAGE_W / fw, budget / fh)
-      const style = document.documentElement.style
-      style.setProperty('--bp-fw', String(fw))
-      style.setProperty('--bp-fh', String(fh))
-      style.setProperty('--bp-scale', scale.toFixed(4))
-      style.setProperty('--bp-w', String(Math.round(fw * scale)))
-      style.setProperty('--bp-h', String(Math.round(fh * scale)))
-    }
-    window.addEventListener('beforeprint', onBeforePrint)
-    return () => window.removeEventListener('beforeprint', onBeforePrint)
-  }, [])
-
-  /**
-   * Prints one of the two sheets.
-   *
-   * `plan` is the drawing as it stands — the same zoom, the same hour, the same
-   * filters — given the whole page. `schedule` is the whole building across the
-   * top and the hour's rooms listed underneath, which is the sheet somebody
-   * carries around the building.
-   *
-   * The order matters: the frame becomes the shape of the paper, the canvas is
-   * re-fitted to it, and only then does the dialog open. Re-fitting is not
-   * optional — the zoom decides which room labels are drawn inside their walls,
-   * which are drawn as callouts and which are dropped, so a frame that changes
-   * shape without one prints a plan labelled for a different page.
+   * Nothing is measured and nothing is moved. The canvas is handed the region
+   * and draws it through a viewBox, which sizes itself to the paper, so the view
+   * on screen is never disturbed and there is no window size, page size or
+   * device that has to be guessed at. Cancelling the dialog leaves the map
+   * exactly where it was, because it was never touched.
    */
   const doPrint = useCallback(
     async (mode: PrintMode) => {
       const handle = canvas.current
       if (!handle || printMode) return
-      const before = handle.snapshot()
-      // A schedule sheet is always the whole building; a plan sheet is whatever
-      // part of it is on screen, which is what "as it stands" has to mean.
-      const region =
-        mode === 'schedule'
-          ? { x: 0, y: 0, w: FLOORPLAN.width, h: FLOORPLAN.height }
-          : handle.viewport()
-      if (!region) return
-      // Height from the region's own proportions, so the box is the shape of
-      // what goes in it and there is no band of white above or below the plan.
-      const height =
-        mode === 'schedule'
-          ? SCHEDULE_PLAN_H
-          : Math.max(240, Math.min(PLAN_MAX_H, Math.round(PAGE_W / (region.w / region.h))))
-      // Two frames each time: one for React to commit the size, one for the
-      // browser to lay it out. The canvas measures itself, so it has to run last.
-      const settle = () =>
-        new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))))
+      // Cropped to the building either way: zoomed out, most of what is on
+      // screen is empty drawing, and printing that is printing a margin.
+      const seen = mode === 'schedule' ? null : handle.viewport()
       setPrintMode(mode)
-      setPrintBox({ w: PAGE_W, h: height })
+      setViewRegion(seen ? overlap(seen, inkBox) : null)
       try {
-        await settle()
-        handle.showBox(region)
-        await settle()
-        // Blocks until the dialog is dismissed, which is what makes the restore
-        // below safe to run straight after it.
+        // One commit, one layout, then print. `window.print()` blocks until the
+        // dialog closes, which is what makes the reset below safe after it.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))))
         window.print()
       } finally {
         setPrintMode(null)
-        setPrintBox(null)
-        await settle()
-        handle.restore(before)
+        setViewRegion(null)
       }
     },
-    [printMode],
+    [printMode, inkBox],
   )
 
   /** Escape unwinds one layer at a time, innermost first, as on the ward map. */
@@ -527,34 +539,24 @@ export default function BuildingMap({
   }
 
   return (
-    <div
-      // Fixed rather than relative while a sheet is being prepared, so a box
-      // wider than the window is clipped instead of adding scrollbars to the
-      // page under it. The print stylesheet takes this back into normal flow,
-      // where the masthead, the plan and the key stack down one sheet.
-      className={`building-print-sheet w-full overflow-hidden bg-white ${
-        printMode ? 'fixed top-0 left-0 z-50' : 'relative h-full'
-      }`}
-      style={printBox ? { width: printBox.w, height: printBox.h } : undefined}
-    >
+    <div className="building-print-sheet relative h-full w-full overflow-hidden bg-white">
       {/*
-        Print-only masthead.
+        Page one's masthead.
         The hour is the whole point of the sheet — 'which room is the Valiant 9
         class in' has a different answer at 10 than at 11 — and the date is what
         tells somebody in December that the sheet on the noticeboard is stale.
+        One line, because every tenth of an inch spent here is plan.
       */}
       <header className="hidden print:block">
-        <div className="flex items-baseline justify-between gap-4 border-b border-neutral-300 pb-1">
-          <h2 className="text-base font-semibold text-neutral-900">
+        <div className="flex items-baseline justify-between gap-4 pb-0.5">
+          <h2 className="text-[13px] font-semibold text-neutral-900">
             Building map
             {activeSlot && (
               <span className="font-normal text-neutral-700"> &mdash; {slotLabel(activeSlot)}</span>
             )}
           </h2>
-          <p className="text-[10px] text-neutral-600">
-            {slotId
-              ? `${free.length} of ${usable.length} rooms free`
-              : 'No hour selected'}
+          <p className="text-[9px] text-neutral-600">
+            {slotId ? `${free.length} of ${usable.length} rooms free` : 'No hour selected'}
             {freeOnly && ' \u00b7 free rooms only'}
             {printedOn && ` \u00b7 ${printedOn}`}
           </p>
@@ -562,12 +564,26 @@ export default function BuildingMap({
       </header>
 
       {/*
-        The plan's box. On screen it is the whole area under the floating bar;
-        on paper the print stylesheet gives it a size in inches and scales the
-        frame inside it. The wrapper exists so the masthead and the list are
-        outside the part that gets scaled.
+        The plan's box.
+        On screen it is the whole area under the floating bar. On paper it is the
+        full width of whatever paper this is and as tall as the drawing in it
+        needs — `--bp-aspect` is the region's own shape, so there is no band of
+        white above or below the plan and none down either side. The wrapper
+        exists so the masthead and page two are outside it.
       */}
-      <div id="building-plan" className="h-full w-full">
+      <div
+        id="building-plan"
+        className="h-full w-full"
+        // Set on every render, not only while printing: the box has to be the
+        // shape of the drawing going into it whichever way the print was
+        // started, and on screen these two do nothing at all.
+        style={
+          {
+            '--bp-aspect': String(planRegion.w / planRegion.h),
+            '--bp-max-h': PLAN_MAX_H_CSS,
+          } as React.CSSProperties
+        }
+      >
         <BuildingCanvas
           rooms={data.rooms}
           assignments={byRoom}
@@ -577,6 +593,8 @@ export default function BuildingMap({
           draft={draft}
           dimAssigned={freeOnly}
           hideClosed={hideClosed}
+          printRegion={planRegion}
+          printWidthPx={PAGE_W}
           onSelect={(key) => {
             if (draft) return
             setSelectedKey(key)
@@ -597,45 +615,79 @@ export default function BuildingMap({
         plan, and this is what it is for. Four columns because a room and a class
         name is a short line and a single column would run onto a second page.
       */}
+      {/*
+        Page two: the key, and the hour's rooms.
+
+        A page of its own rather than a band under the plan, because the plan
+        cannot fill a page on its own and the two cannot share one. The building
+        is 1.98 to 1 and a landscape page's printable area is about 1.5 to 1, so
+        a plan drawn to the full width of the paper reaches roughly three
+        quarters of its height however it is scaled — the rest is not space a
+        bigger plan can take, and the list is better on a sheet somebody can hold
+        next to the map than crushed into an inch and a half beneath it.
+      */}
+      {/* Page one's key, under the plan. The fills are the whole answer on that
+          page; page two says 'free' and 'not available' in words and does not
+          need it. */}
       <div className="hidden print:block">
-        {printMode === 'schedule' ? (
-          <ul className="columns-4 gap-4 border-t border-neutral-300 pt-1 text-[9px] leading-[1.45] text-neutral-800">
-            {hourRows.map(({ room, here, status }) => (
-              <li key={room.key} className="break-inside-avoid">
-                <span className="font-semibold">{room.name}</span>{' '}
-                <span className="text-neutral-600">
-                  {here.length > 0
-                    ? here.map((a) => a.title).join(', ')
-                    : status === 'closed'
-                      ? 'not available'
-                      : 'free'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-300 pt-1 text-[10px] text-neutral-700">
-            {statuses.map((key) => (
-              <li key={key} className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="h-2.5 w-2.5 rounded-sm ring-1"
-                  style={{ background: ROOM_STATUS[key].swatch, color: ROOM_STATUS[key].stroke }}
-                />
-                {ROOM_STATUS[key].label}
-              </li>
-            ))}
-            {legend.map((key) => (
-              <li key={key} className="flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ background: orgInk(key) }}
-                />
-                {orgLabel(key)}
-              </li>
-            ))}
-          </ul>
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-300 pt-1 text-[10px] text-neutral-700">
+          {statuses.map((key) => (
+            <li key={key} className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 rounded-sm ring-1"
+                style={{ background: ROOM_STATUS[key].swatch, color: ROOM_STATUS[key].stroke }}
+              />
+              {ROOM_STATUS[key].label}
+            </li>
+          ))}
+          {legend.map((key) => (
+            <li key={key} className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 rounded-full"
+                style={{ background: orgInk(key) }}
+              />
+              {orgLabel(key)}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="ward-print-page-two hidden print:block">
+        <h2 className="text-[13px] font-semibold text-neutral-900">
+          {activeSlot ? slotLabel(activeSlot) : 'No hour selected'}
+          <span className="font-normal text-neutral-600">
+            {' '}
+            &mdash; rooms and classes
+            {printedOn && ` \u00b7 ${printedOn}`}
+          </span>
+        </h2>
+
+        {/*
+          Room over class rather than side by side: a class name is long
+          ('Primary Activities - Boys 9 & 10') and three columns of two-column
+          rows wastes half the width on the gap between them.
+        */}
+        <ul className="mt-2 columns-3 gap-6 text-[11px] leading-[1.5] text-neutral-800">
+          {hourRows.map(({ room, here, status }) => (
+            <li
+              key={room.key}
+              className="flex break-inside-avoid items-baseline gap-2 border-b border-neutral-200 py-0.5"
+            >
+              <span className="shrink-0 font-semibold">{room.name}</span>
+              <span className="ml-auto text-right text-neutral-600">
+                {here.length > 0
+                  ? here.map((a) => a.title).join(', ')
+                  : status === 'closed'
+                    ? 'not available'
+                    : 'free'}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {hourRows.length === 0 && (
+          <p className="mt-2 text-[11px] text-neutral-500">No rooms to list for this hour.</p>
         )}
       </div>
 
@@ -752,15 +804,17 @@ export default function BuildingMap({
               }
             />
             {/*
-              Prints the plan as it stands: the same zoom, the same hour, the
-              same filters, on one landscape page. The other sheet — the plan
-              with the hour listed under it — is printed from the list view,
-              which is where that list already is.
+              Two pages: the plan as it stands — the same zoom, the same hour,
+              the same filters — and then the hour's rooms and classes. Zoomed
+              in, page one is that part of the building and it fills the paper;
+              zoomed out it is the whole plan. The same sheet for the whole
+              building is printed from the list view, which is where that list
+              already is.
             */}
             <ToolButton
               segment
-              label={printMode === 'plan' ? 'Preparing the page' : 'Print the plan'}
-              hint="The drawing as it stands, on one landscape page"
+              label={printMode === 'plan' ? 'Preparing the pages' : 'Print this view'}
+              hint="Two pages: the part of the plan on screen, then the room list"
               align="right"
               pressed={printMode === 'plan'}
               onClick={() => void doPrint('plan')}
@@ -1000,8 +1054,8 @@ export default function BuildingMap({
  *
  * What works in a hallway on a phone, where a floorplan zoomed far enough to
  * read is a floorplan you cannot navigate. Printing it is a button rather than
- * this view on paper: the sheet worth carrying is the plan with the list under
- * it, which is `doPrint('schedule')`, and it is composed on the map behind here.
+ * this view on paper: the sheet worth carrying is the whole plan and then this
+ * list, which is `doPrint('schedule')`, composed on the map behind here.
  *
  * The rows are handed down rather than filtered here, so the table and the
  * printed sheet cannot disagree about which rooms belong to this hour.
@@ -1034,13 +1088,13 @@ function HourList({
             {freeOnly && ' · free rooms'}
           </h2>
           <div className="flex shrink-0 items-center gap-2">
-            {/* The plan comes with it: a list of room numbers is no use to
-                somebody who does not already know where 214 is. */}
+            {/* The plan comes with it, on its own page: a list of room numbers
+                is no use to somebody who does not know where 214 is. */}
             <button
               type="button"
               onClick={onPrint}
               disabled={printing}
-              title="One landscape page: the whole plan, with this list under it"
+              title="Two pages: the whole plan, then this list"
               className={`${btnQuiet} disabled:opacity-50`}
             >
               {printing ? 'Preparing\u2026' : 'Print this hour'}

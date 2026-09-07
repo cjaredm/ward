@@ -1,18 +1,30 @@
 /*
- * The building map on paper, in two shapes.
+ * The building map on paper: the plan on page one, the hour's rooms on page two.
  *
- * The plan sheet is the drawing as it stands on screen, given the whole page.
- * The schedule sheet is the whole building at the top and the hour's rooms
- * listed under it — which is what gets carried into a Sunday meeting, and what
- * the 2.3 inches the floorplan's own proportions leave over are for.
+ * Two pages because one will not do. The building is very nearly two to one and
+ * a landscape page's printable area is about three to two, so a plan drawn to
+ * the full width of the paper reaches roughly three quarters of its height and
+ * no amount of scaling changes that — the shortfall is the shape of the
+ * building against the shape of the paper. The room list is better on a sheet
+ * that can be held beside the plan than crushed into the inch and a half under
+ * it, so that is where it goes.
  *
  * Loaded by BuildingMap rather than from globals.css: `@page` cannot be scoped
  * to an element, and this route is the one that wants landscape.
  */
 @media print {
   @page {
+    /*
+     * No paper size named on purpose. The plan draws itself through an SVG
+     * viewBox and every box below is sized in per cent, so this prints at the
+     * full width of whatever is in the tray — and on bigger paper the plan is
+     * simply bigger. Tabloid is about 1.6x letter.
+     */
     size: landscape;
-    margin: 0.4in;
+    /* 0.3in rather than a browser's usual 0.4: the plan runs out of width
+       first, so every tenth of an inch here is plan. Under about 0.25 printers
+       start clipping. */
+    margin: 0.3in;
   }
 
   html,
@@ -32,7 +44,7 @@
   /*
    * The page shell and the map's own root. Both are full-height boxes that clip
    * what overflows them, which on paper would cut the sheet off at the plan and
-   * lose the list under it.
+   * lose the page under it.
    */
   .building-print-shell,
   .building-print-sheet {
@@ -44,28 +56,38 @@
   }
 
   /*
-   * The plan's box on paper. Every one of these custom properties is written by
-   * BuildingMap's beforeprint handler, measured off the live frame.
+   * The plan's box: the full width of the paper, and as tall as the drawing in
+   * it needs. `--bp-aspect` is the printed region's own width over its height,
+   * set by BuildingMap, so the box is the shape of what goes in it — no band of
+   * white above or below the plan, and none down either side.
    *
-   * The frame keeps the pixel size it was laid out at — the pan-and-zoom
-   * transform inside it, and every label size derived from that zoom, were
-   * fitted to exactly those pixels — and the whole thing is then scaled into the
-   * box. The floorplan is an SVG and the rooms are SVG over it, so scaling here
-   * costs nothing: it prints at the printer's resolution, not the screen's.
-   *
-   * The fallbacks are a letter page's width and the floorplan's own proportions,
-   * which is what shows if the handler never ran.
+   * The cap only bites on a region somebody has zoomed into that is taller than
+   * the paper. Nothing here is in pixels: the drawing is an SVG with a viewBox
+   * and scales itself to this box, which is what makes the sheet come out right
+   * on letter, A4 and tabloid alike — and what a print laid out for a pixel
+   * count could not do, because the pixel count was the window's.
    */
   #building-plan {
-    width: calc(var(--bp-w, 979) * 1px) !important;
-    height: calc(var(--bp-h, 514) * 1px) !important;
-    margin: 0 auto !important;
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: var(--bp-aspect, 1.984);
+    /* Not a percentage: the box this would be a percentage of has no height on
+       paper, and a percentage of an indefinite height is no limit at all. When
+       it does clamp, the box goes wider than its aspect and the SVG centres
+       itself inside it rather than stretching. */
+    max-height: var(--bp-max-h, min(92vh, 9.5in));
     overflow: hidden !important;
+    /* A plan is one picture. Never let it break across the fold. */
+    break-inside: avoid;
   }
   #building-plan > * {
-    width: calc(var(--bp-fw, 979) * 1px) !important;
-    height: calc(var(--bp-fh, 514) * 1px) !important;
-    transform: scale(var(--bp-scale, 1));
-    transform-origin: top left;
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  /* Page two. `break-before` on the block itself rather than `break-after` on
+     the plan, so a plan that does spill cannot push a blank page in between. */
+  .ward-print-page-two {
+    break-before: page;
   }
 }
