@@ -1,0 +1,71 @@
+/*
+ * The building map on paper, in two shapes.
+ *
+ * The plan sheet is the drawing as it stands on screen, given the whole page.
+ * The schedule sheet is the whole building at the top and the hour's rooms
+ * listed under it — which is what gets carried into a Sunday meeting, and what
+ * the 2.3 inches the floorplan's own proportions leave over are for.
+ *
+ * Loaded by BuildingMap rather than from globals.css: `@page` cannot be scoped
+ * to an element, and this route is the one that wants landscape.
+ */
+@media print {
+  @page {
+    size: landscape;
+    margin: 0.4in;
+  }
+
+  html,
+  body {
+    /* !important because globals.css sets height: 100% here and the two
+       stylesheets are separate chunks — which one the browser puts last is
+       Next's business, not something to rely on. */
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    /* Room fills carry the whole answer: green has a class, yellow is free,
+       grey is not a class space. Browsers drop backgrounds unless told. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /*
+   * The page shell and the map's own root. Both are full-height boxes that clip
+   * what overflows them, which on paper would cut the sheet off at the plan and
+   * lose the list under it.
+   */
+  .building-print-shell,
+  .building-print-sheet {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /*
+   * The plan's box on paper. Every one of these custom properties is written by
+   * BuildingMap's beforeprint handler, measured off the live frame.
+   *
+   * The frame keeps the pixel size it was laid out at — the pan-and-zoom
+   * transform inside it, and every label size derived from that zoom, were
+   * fitted to exactly those pixels — and the whole thing is then scaled into the
+   * box. The floorplan is an SVG and the rooms are SVG over it, so scaling here
+   * costs nothing: it prints at the printer's resolution, not the screen's.
+   *
+   * The fallbacks are a letter page's width and the floorplan's own proportions,
+   * which is what shows if the handler never ran.
+   */
+  #building-plan {
+    width: calc(var(--bp-w, 979) * 1px) !important;
+    height: calc(var(--bp-h, 514) * 1px) !important;
+    margin: 0 auto !important;
+    overflow: hidden !important;
+  }
+  #building-plan > * {
+    width: calc(var(--bp-fw, 979) * 1px) !important;
+    height: calc(var(--bp-fh, 514) * 1px) !important;
+    transform: scale(var(--bp-scale, 1));
+    transform-origin: top left;
+  }
+}

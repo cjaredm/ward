@@ -194,7 +194,7 @@ export default function WardMap({
    * at that shape. It lasts as long as the print dialog and no longer.
    */
   const [printing, setPrinting] = useState(false)
-  /** The date the masthead prints, filled in when a print actually starts. */
+  /** The date the masthead prints. Set after mount — see the effect below. */
   const [printedOn, setPrintedOn] = useState('')
   /**
    * Basemap: the drawn map, or aerial imagery with the map's roads and labels
@@ -231,6 +231,21 @@ export default function WardMap({
    * or every later edit to a parcel would yank the camera back.
    */
   const framedInitial = useRef(!initialGroupKey)
+
+  /*
+   * The date on the sheet, resolved after mount rather than while rendering.
+   *
+   * Not during render, because the server renders this too and its clock is in
+   * another timezone — the two would disagree and hydration would throw it away.
+   * Not in beforeprint either: a state update from there is flushed after the
+   * browser has already snapshotted the page, so the first print of a session
+   * would come out with no date on it.
+   */
+  useEffect(() => {
+    setPrintedOn(
+      new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    )
+  }, [])
 
   useEffect(() => {
     const isCoarse = window.matchMedia('(pointer: coarse)').matches
@@ -1254,13 +1269,6 @@ export default function WardMap({
    */
   useEffect(() => {
     const onBeforePrint = () => {
-      setPrintedOn(
-        new Date().toLocaleDateString(undefined, {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-        }),
-      )
       const el = mapRef.current?.getMap().getContainer()
       if (!el) return
       const aspect = el.clientWidth / Math.max(1, el.clientHeight)

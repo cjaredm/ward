@@ -20,9 +20,11 @@ import {
   removeVertex,
   type Pt,
 } from '@/lib/floorplan-geom'
+import { FLOORPLAN } from '@/lib/floorplan'
 import { orgInk, orgLabel } from '@/lib/orgs'
-import type { BuildingData, MeetingSlot, RoomAssignment } from '@/lib/types'
+import type { BuildingData, BuildingRoom, MeetingSlot, RoomAssignment } from '@/lib/types'
 import BuildingCanvas, { type CanvasHandle, type Draft } from './BuildingCanvas'
+import './building-map-print.css'
 import Clamped from './Clamped'
 import Dialog, { type DialogRequest } from './Dialog'
 import MapCard from './MapCard'
@@ -31,6 +33,37 @@ import RoomPanel from './RoomPanel'
 import SlotSwitcher from './SlotSwitcher'
 import ToolButton from './ToolButton'
 import { btnQuiet, btnSmall } from './form-styles'
+
+/**
+ * Printing, in CSS pixels of paper — one inch is 96 of them.
+ *
+ * The page is the smaller of the two sheets anybody here prints on: letter
+ * landscape at a 0.4in margin leaves 10.2 x 7.7in and A4 landscape leaves
+ * 10.89 x 7.47, so taking letter's width and A4's height gives one layout that
+ * fits on either without spilling onto a second page.
+ */
+const PX_PER_IN = 96
+const PAGE_W = Math.round(10.2 * PX_PER_IN)
+const PAGE_H = Math.round(7.47 * PX_PER_IN)
+/** What the masthead takes off the top of it, and the colour key off the bottom. */
+const MASTHEAD_H = 52
+const KEY_H = 30
+/** The plan sheet: everything the masthead and the key do not want. */
+const PLAN_MAX_H = PAGE_H - MASTHEAD_H - KEY_H
+/**
+ * The schedule sheet's plan: the whole building, as wide as the page.
+ *
+ * The floorplan is 2252 x 1183 — nearly two to one, where the page is four to
+ * three — so drawn to the full width it is only 5.4in tall. That is not wasted
+ * space, it is what the list of rooms goes in.
+ */
+const SCHEDULE_PLAN_H = Math.round(PAGE_W / (FLOORPLAN.width / FLOORPLAN.height))
+
+/** Which sheet is being prepared, or null when nothing is printing. */
+type PrintMode = 'plan' | 'schedule'
+
+/** One row of the hour: a room, what is in it, and how it should be painted. */
+type HourRow = { room: BuildingRoom; status: RoomStatus; here: RoomAssignment[] }
 
 /**
  * The building map.
@@ -102,7 +135,26 @@ export default function BuildingMap({
   const [dialog, setDialog] = useState<DialogRequest | null>(null)
   /** True on a touch device, so the copy says Tap rather than Click. */
   const [coarse, setCoarse] = useState(false)
+  /**
+   * Which sheet is being prepared for the printer, or null.
+   *
+   * A print is the drawing at whatever shape and zoom the frame happens to have,
+   * so a page-shaped print needs a page-shaped frame: while this is set the map
+   * is a fixed box in paper pixels and the canvas has been re-fitted to it. It
+   * lasts as long as the print dialog.
+   */
+  const [printMode, setPrintMode] = useState<PrintMode | null>(null)
+  /** The plan's box while printing, in paper pixels. */
+  const [printBox, setPrintBox] = useState<{ w: number; h: number } | null>(null)
+  /** The date the masthead prints. Set after mount — see the effect below. */
+  const [printedOn, setPrintedOn] = useState('')
   const canvas = useRef<CanvasHandle | null>(null)
+  /**
+   * `printMode` for the beforeprint listener, which is registered once and has
+   * to know which sheet's height to measure against.
+   */
+  const printModeRef = useRef<PrintMode | null>(null)
+  printModeRef.current = printMode
 
   useEffect(() => {
     const mq = window.matchMedia('(pointer: coarse)')
@@ -110,6 +162,21 @@ export default function BuildingMap({
     sync()
     mq.addEventListener('change', sync)
     return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  /*
+   * The date on the sheet, resolved after mount rather than while rendering.
+   *
+   * Not during render, because the server renders this too and its clock is in
+   * another timezone — the two would disagree and hydration would throw it away.
+   * Not in beforeprint either: a state update from there is flushed after the
+   * browser has already taken its snapshot of the page, so the first print of a
+   * session would come out with no date on it.
+   */
+  useEffect(() => {
+    setPrintedOn(
+      new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }),
+    )
   }, [])
 
   const load = useCallback(async () => {
@@ -196,6 +263,36 @@ export default function BuildingMap({
     return { usable, free: usable.filter((r) => !byRoom.has(r.key)) }
   }, [data.rooms, byRoom, availability, slotId])
 
+  /** The hour being shown, as a row rather than an id. */
+  const activeSlot = useMemo(
+    () => data.slots.find((s) => s.id === slotId) ?? null,
+    [data.slots, slotId],
+  )
+
+  /**
+   * The hour as rows: every room that holds classes, what is in it, and its
+   * colour. One list for the on-screen table and the printed sheet both, so the
+   * page cannot show one set of rooms and the paper another.
+   *
+   * The hallways never appear — a sheet of what is meeting where has no line for
+   * a corridor. A room that holds classes but is closed this hour does appear,
+   * saying so, because "why is 101 not on the list" is a worse question than one
+   * extra row; Hide rooms not for classes takes it away.
+   */
+  const hourRows = useMemo<HourRow[]>(
+    () =>
+      data.rooms
+        .filter((r) => r.is_assignable)
+        .map((r) => ({
+          room: r,
+          here: byRoom.get(r.key) ?? [],
+          status: roomStatus(r, slotId, availability, byRoom.get(r.key)?.length ?? 0),
+        }))
+        .filter(({ status }) => !hideClosed || status !== 'closed')
+        .filter(({ status }) => !freeOnly || status === 'free'),
+    [data.rooms, byRoom, availability, slotId, hideClosed, freeOnly],
+  )
+
   /**
    * Which of the three colours are actually on the drawing right now, so the key
    * does not explain a colour nothing is painted in.
@@ -230,6 +327,96 @@ export default function BuildingMap({
     }
     return [...seen.keys()].sort()
   }, [data.assignments, slotId])
+
+  /**
+   * Sizes the paper box to the frame that is about to be printed.
+   *
+   * Runs on every print, the browser's own Cmd-P included — which is why it
+   * measures rather than assuming the prepared shape. Nothing here touches React
+   * state: an update from beforeprint lands after the browser has snapshotted
+   * the page, so this writes the custom properties the print stylesheet reads
+   * straight onto the document.
+   *
+   * `scale` is what makes an unprepared print work at all. A 1400px-wide frame
+   * printed at one CSS pixel to the point would be fourteen inches across, so
+   * the frame keeps its own pixel size — the zoom transform and every label size
+   * inside it were fitted to exactly that — and the whole thing is scaled down
+   * into the box. Vector in, vector out; the sharpness is the printer's.
+   */
+  useEffect(() => {
+    const onBeforePrint = () => {
+      const frame = document.getElementById('building-plan')?.firstElementChild
+      if (!(frame instanceof HTMLElement)) return
+      const fw = frame.clientWidth
+      const fh = frame.clientHeight
+      if (!fw || !fh) return
+      const budget = printModeRef.current === 'schedule' ? SCHEDULE_PLAN_H : PLAN_MAX_H
+      const scale = Math.min(PAGE_W / fw, budget / fh)
+      const style = document.documentElement.style
+      style.setProperty('--bp-fw', String(fw))
+      style.setProperty('--bp-fh', String(fh))
+      style.setProperty('--bp-scale', scale.toFixed(4))
+      style.setProperty('--bp-w', String(Math.round(fw * scale)))
+      style.setProperty('--bp-h', String(Math.round(fh * scale)))
+    }
+    window.addEventListener('beforeprint', onBeforePrint)
+    return () => window.removeEventListener('beforeprint', onBeforePrint)
+  }, [])
+
+  /**
+   * Prints one of the two sheets.
+   *
+   * `plan` is the drawing as it stands — the same zoom, the same hour, the same
+   * filters — given the whole page. `schedule` is the whole building across the
+   * top and the hour's rooms listed underneath, which is the sheet somebody
+   * carries around the building.
+   *
+   * The order matters: the frame becomes the shape of the paper, the canvas is
+   * re-fitted to it, and only then does the dialog open. Re-fitting is not
+   * optional — the zoom decides which room labels are drawn inside their walls,
+   * which are drawn as callouts and which are dropped, so a frame that changes
+   * shape without one prints a plan labelled for a different page.
+   */
+  const doPrint = useCallback(
+    async (mode: PrintMode) => {
+      const handle = canvas.current
+      if (!handle || printMode) return
+      const before = handle.snapshot()
+      // A schedule sheet is always the whole building; a plan sheet is whatever
+      // part of it is on screen, which is what "as it stands" has to mean.
+      const region =
+        mode === 'schedule'
+          ? { x: 0, y: 0, w: FLOORPLAN.width, h: FLOORPLAN.height }
+          : handle.viewport()
+      if (!region) return
+      // Height from the region's own proportions, so the box is the shape of
+      // what goes in it and there is no band of white above or below the plan.
+      const height =
+        mode === 'schedule'
+          ? SCHEDULE_PLAN_H
+          : Math.max(240, Math.min(PLAN_MAX_H, Math.round(PAGE_W / (region.w / region.h))))
+      // Two frames each time: one for React to commit the size, one for the
+      // browser to lay it out. The canvas measures itself, so it has to run last.
+      const settle = () =>
+        new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))))
+      setPrintMode(mode)
+      setPrintBox({ w: PAGE_W, h: height })
+      try {
+        await settle()
+        handle.showBox(region)
+        await settle()
+        // Blocks until the dialog is dismissed, which is what makes the restore
+        // below safe to run straight after it.
+        window.print()
+      } finally {
+        setPrintMode(null)
+        setPrintBox(null)
+        await settle()
+        handle.restore(before)
+      }
+    },
+    [printMode],
+  )
 
   /** Escape unwinds one layer at a time, innermost first, as on the ward map. */
   useEffect(() => {
@@ -340,25 +527,117 @@ export default function BuildingMap({
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-white">
-      <BuildingCanvas
-        rooms={data.rooms}
-        assignments={byRoom}
-        availability={availability}
-        slotId={slotId}
-        selectedKey={selectedKey}
-        draft={draft}
-        dimAssigned={freeOnly}
-        hideClosed={hideClosed}
-        onSelect={(key) => {
-          if (draft) return
-          setSelectedKey(key)
-        }}
-        onDraftChange={setDraft}
-        onReady={(handle) => {
-          canvas.current = handle
-        }}
-      />
+    <div
+      // Fixed rather than relative while a sheet is being prepared, so a box
+      // wider than the window is clipped instead of adding scrollbars to the
+      // page under it. The print stylesheet takes this back into normal flow,
+      // where the masthead, the plan and the key stack down one sheet.
+      className={`building-print-sheet w-full overflow-hidden bg-white ${
+        printMode ? 'fixed top-0 left-0 z-50' : 'relative h-full'
+      }`}
+      style={printBox ? { width: printBox.w, height: printBox.h } : undefined}
+    >
+      {/*
+        Print-only masthead.
+        The hour is the whole point of the sheet — 'which room is the Valiant 9
+        class in' has a different answer at 10 than at 11 — and the date is what
+        tells somebody in December that the sheet on the noticeboard is stale.
+      */}
+      <header className="hidden print:block">
+        <div className="flex items-baseline justify-between gap-4 border-b border-neutral-300 pb-1">
+          <h2 className="text-base font-semibold text-neutral-900">
+            Building map
+            {activeSlot && (
+              <span className="font-normal text-neutral-700"> &mdash; {slotLabel(activeSlot)}</span>
+            )}
+          </h2>
+          <p className="text-[10px] text-neutral-600">
+            {slotId
+              ? `${free.length} of ${usable.length} rooms free`
+              : 'No hour selected'}
+            {freeOnly && ' \u00b7 free rooms only'}
+            {printedOn && ` \u00b7 ${printedOn}`}
+          </p>
+        </div>
+      </header>
+
+      {/*
+        The plan's box. On screen it is the whole area under the floating bar;
+        on paper the print stylesheet gives it a size in inches and scales the
+        frame inside it. The wrapper exists so the masthead and the list are
+        outside the part that gets scaled.
+      */}
+      <div id="building-plan" className="h-full w-full">
+        <BuildingCanvas
+          rooms={data.rooms}
+          assignments={byRoom}
+          availability={availability}
+          slotId={slotId}
+          selectedKey={selectedKey}
+          draft={draft}
+          dimAssigned={freeOnly}
+          hideClosed={hideClosed}
+          onSelect={(key) => {
+            if (draft) return
+            setSelectedKey(key)
+          }}
+          onDraftChange={setDraft}
+          onReady={(handle) => {
+            canvas.current = handle
+          }}
+        />
+      </div>
+
+      {/*
+        Print-only footer, and the difference between the two sheets.
+
+        The plan sheet gets the colour key, because on it the colours are the
+        whole answer. The schedule sheet gets the hour as a list instead: the
+        floorplan's proportions leave about an inch and a half under a full-width
+        plan, and this is what it is for. Four columns because a room and a class
+        name is a short line and a single column would run onto a second page.
+      */}
+      <div className="hidden print:block">
+        {printMode === 'schedule' ? (
+          <ul className="columns-4 gap-4 border-t border-neutral-300 pt-1 text-[9px] leading-[1.45] text-neutral-800">
+            {hourRows.map(({ room, here, status }) => (
+              <li key={room.key} className="break-inside-avoid">
+                <span className="font-semibold">{room.name}</span>{' '}
+                <span className="text-neutral-600">
+                  {here.length > 0
+                    ? here.map((a) => a.title).join(', ')
+                    : status === 'closed'
+                      ? 'not available'
+                      : 'free'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-300 pt-1 text-[10px] text-neutral-700">
+            {statuses.map((key) => (
+              <li key={key} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="h-2.5 w-2.5 rounded-sm ring-1"
+                  style={{ background: ROOM_STATUS[key].swatch, color: ROOM_STATUS[key].stroke }}
+                />
+                {ROOM_STATUS[key].label}
+              </li>
+            ))}
+            {legend.map((key) => (
+              <li key={key} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ background: orgInk(key) }}
+                />
+                {orgLabel(key)}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/*
         Everything that floats over the drawing: a bar across the top, and
@@ -370,7 +649,7 @@ export default function BuildingMap({
         the nav rides in this bar too — pinned right, where a menu panel has room
         to hang without running off the side of a phone.
       */}
-      <div className="pointer-events-none absolute inset-x-2 top-2 bottom-9 z-20 flex flex-col gap-2 sm:inset-x-3 sm:top-3 sm:bottom-10">
+      <div className="pointer-events-none absolute inset-x-2 top-2 bottom-9 z-20 flex flex-col gap-2 print:hidden sm:inset-x-3 sm:top-3 sm:bottom-10">
         {/*
           The bar wraps rather than squeezing. All of it — hour chip, four tools,
           Menu — is about 440px, and a phone is 375px, so something has to go to
@@ -469,6 +748,27 @@ export default function BuildingMap({
                   <circle cx="4.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
                   <circle cx="4.5" cy="12" r="1.2" fill="currentColor" stroke="none" />
                   <circle cx="4.5" cy="17.5" r="1.2" fill="currentColor" stroke="none" />
+                </>
+              }
+            />
+            {/*
+              Prints the plan as it stands: the same zoom, the same hour, the
+              same filters, on one landscape page. The other sheet — the plan
+              with the hour listed under it — is printed from the list view,
+              which is where that list already is.
+            */}
+            <ToolButton
+              segment
+              label={printMode === 'plan' ? 'Preparing the page' : 'Print the plan'}
+              hint="The drawing as it stands, on one landscape page"
+              align="right"
+              pressed={printMode === 'plan'}
+              onClick={() => void doPrint('plan')}
+              icon={
+                <>
+                  <path d="M7.5 8.5v-4h9v4" />
+                  <rect x="3.5" y="8.5" width="17" height="7" rx="1.5" />
+                  <path d="M7.5 15.5h9v4h-9z" />
                 </>
               }
             />
@@ -624,7 +924,7 @@ export default function BuildingMap({
       </div>
 
       {/* The question somebody actually arrives with. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] print:hidden">
         <p className="pointer-events-auto inline-block rounded-md bg-white/90 px-2 py-1 text-[11px] text-neutral-600 shadow-sm">
           {slotId
             ? `${free.length} of ${usable.length} rooms free this hour`
@@ -634,13 +934,11 @@ export default function BuildingMap({
 
       {listMode && (
         <HourList
-          slot={data.slots.find((s) => s.id === slotId) ?? null}
-          rooms={data.rooms}
-          byRoom={byRoom}
-          availability={availability}
-          slotId={slotId}
+          slot={activeSlot}
+          rows={hourRows}
           freeOnly={freeOnly}
-          hideClosed={hideClosed}
+          printing={printMode === 'schedule'}
+          onPrint={() => void doPrint('schedule')}
           onPick={(key) => {
             setListMode(false)
             setSelectedKey(key)
@@ -650,44 +948,48 @@ export default function BuildingMap({
       )}
 
       {dialog && (
-        <Dialog request={dialog} busy={busy} onClose={() => setDialog(null)} />
+        <div className="print:hidden">
+          <Dialog request={dialog} busy={busy} onClose={() => setDialog(null)} />
+        </div>
       )}
 
       {room && !draft && (
-        <RoomPanel
-          room={room}
-          slots={data.slots}
-          assignments={data.assignments.filter((a) => a.room_key === room.key)}
-          classOptions={data.classOptions}
-          taken={taken}
-          busy={busy}
-          warnings={warnings}
-          onClose={() => setSelectedKey(null)}
-          onRename={(name) => send(`/api/building/rooms/${room.key}`, 'PATCH', { name })}
-          onToggleAssignable={(next) =>
-            send(`/api/building/rooms/${room.key}`, 'PATCH', { is_assignable: next })
-          }
-          availability={availability}
-          canEdit={canEdit}
-          onSetSlotAvailability={(slot, next) =>
-            send(`/api/building/rooms/${room.key}/availability`, 'PUT', {
-              slot_id: slot,
-              is_available: next,
-            })
-          }
-          onReshape={() => startReshape(room.key)}
-          onZoomTo={() => canvas.current?.fitTo(room.points as Pt[])}
-          onDeleteRoom={() => void deleteRoom(room.key, room.name)}
-          onAddAssignment={(slot, d) =>
-            send('/api/building/assignments', 'POST', {
-              room_key: room.key,
-              slot_id: slot,
-              ...d,
-            })
-          }
-          onEditAssignment={(id, d) => send(`/api/building/assignments/${id}`, 'PATCH', d)}
-          onDeleteAssignment={(id) => send(`/api/building/assignments/${id}`, 'DELETE')}
-        />
+        <div className="print:hidden">
+          <RoomPanel
+            room={room}
+            slots={data.slots}
+            assignments={data.assignments.filter((a) => a.room_key === room.key)}
+            classOptions={data.classOptions}
+            taken={taken}
+            busy={busy}
+            warnings={warnings}
+            onClose={() => setSelectedKey(null)}
+            onRename={(name) => send(`/api/building/rooms/${room.key}`, 'PATCH', { name })}
+            onToggleAssignable={(next) =>
+              send(`/api/building/rooms/${room.key}`, 'PATCH', { is_assignable: next })
+            }
+            availability={availability}
+            canEdit={canEdit}
+            onSetSlotAvailability={(slot, next) =>
+              send(`/api/building/rooms/${room.key}/availability`, 'PUT', {
+                slot_id: slot,
+                is_available: next,
+              })
+            }
+            onReshape={() => startReshape(room.key)}
+            onZoomTo={() => canvas.current?.fitTo(room.points as Pt[])}
+            onDeleteRoom={() => void deleteRoom(room.key, room.name)}
+            onAddAssignment={(slot, d) =>
+              send('/api/building/assignments', 'POST', {
+                room_key: room.key,
+                slot_id: slot,
+                ...d,
+              })
+            }
+            onEditAssignment={(id, d) => send(`/api/building/assignments/${id}`, 'PATCH', d)}
+            onDeleteAssignment={(id) => send(`/api/building/assignments/${id}`, 'DELETE')}
+          />
+        </div>
       )}
     </div>
   )
@@ -696,55 +998,61 @@ export default function BuildingMap({
 /**
  * The hour as a table.
  *
- * This is what prints, and it is what works in a hallway on a phone where a
- * floorplan zoomed far enough to read is a floorplan you cannot navigate.
+ * What works in a hallway on a phone, where a floorplan zoomed far enough to
+ * read is a floorplan you cannot navigate. Printing it is a button rather than
+ * this view on paper: the sheet worth carrying is the plan with the list under
+ * it, which is `doPrint('schedule')`, and it is composed on the map behind here.
+ *
+ * The rows are handed down rather than filtered here, so the table and the
+ * printed sheet cannot disagree about which rooms belong to this hour.
  */
 function HourList({
   slot,
-  rooms,
-  byRoom,
-  availability,
-  slotId,
+  rows,
   freeOnly,
-  hideClosed,
+  printing,
+  onPrint,
   onPick,
   onClose,
 }: {
   slot: MeetingSlot | null
-  rooms: BuildingData['rooms']
-  byRoom: Map<string, RoomAssignment[]>
-  availability: Map<string, boolean>
-  slotId: string | null
+  rows: HourRow[]
   freeOnly: boolean
-  hideClosed: boolean
+  printing: boolean
+  onPrint: () => void
   onPick: (key: string) => void
   onClose: () => void
 }) {
-  // The hallways never appear here — a printed sheet of what is meeting where
-  // has no line for a corridor. A room that holds classes but is closed this
-  // hour does appear, saying so, because "why is 101 not on the list" is a
-  // worse question than one extra row; the Hide button takes it away.
-  const shown = rooms
-    .filter((r) => r.is_assignable)
-    .map((r) => ({ room: r, status: roomStatus(r, slotId, availability, byRoom.get(r.key)?.length ?? 0) }))
-    .filter(({ status }) => !hideClosed || status !== 'closed')
-    .filter(({ status }) => !freeOnly || status === 'free')
+  const shown = rows
 
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-white/97 px-4 py-3">
+    <div className="absolute inset-0 z-30 overflow-y-auto bg-white/97 px-4 py-3 print:hidden">
       <div className="mx-auto max-w-2xl">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-neutral-900">
             {slot ? slotLabel(slot) : 'No hour selected'}
             {freeOnly && ' · free rooms'}
           </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className={btnQuiet}
-          >
-            Back to the map
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* The plan comes with it: a list of room numbers is no use to
+                somebody who does not already know where 214 is. */}
+            <button
+              type="button"
+              onClick={onPrint}
+              disabled={printing}
+              title="One landscape page: the whole plan, with this list under it"
+              className={`${btnQuiet} disabled:opacity-50`}
+            >
+              {printing ? 'Preparing\u2026' : 'Print this hour'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className={btnQuiet}
+            >
+              Back to the map
+            </button>
+          </div>
         </div>
 
         <table className="mt-3 w-full border-collapse text-left text-[13px]">
@@ -755,8 +1063,7 @@ function HourList({
             </tr>
           </thead>
           <tbody>
-            {shown.map(({ room, status }) => {
-              const here = byRoom.get(room.key) ?? []
+            {shown.map(({ room, status, here }) => {
               return (
                 <tr
                   key={room.key}
@@ -767,7 +1074,7 @@ function HourList({
                     <span className="flex items-center gap-1.5">
                       <span
                         aria-hidden
-                        className="h-2 w-2 shrink-0 rounded-sm print:hidden"
+                        className="h-2 w-2 shrink-0 rounded-sm"
                         style={{ background: ROOM_STATUS[status].swatch }}
                       />
                       {room.name}

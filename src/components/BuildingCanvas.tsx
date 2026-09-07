@@ -42,11 +42,28 @@ export type Draft = {
 }
 
 export type CanvasHandle = {
-  /** Fit the whole building in the frame. */
-  fit: () => void
+  /**
+   * Fit the whole building in the frame.
+   *
+   * `padTop` is the gap left for the floating toolbar, which a print does not
+   * have — passing PAD there is the difference between a plan centred on paper
+   * and a plan with 40px of white above it.
+   */
+  fit: (padTop?: number) => void
   /** Zoom to one room, with a margin. */
   fitTo: (points: Pt[]) => void
   zoomBy: (factor: number) => void
+  /**
+   * The rectangle of the drawing the frame is currently showing, in floorplan
+   * units. What "print what is on screen" is measured from — the frame is about
+   * to change shape, and this is the part of the building that has to survive it.
+   */
+  viewport: () => { x: number; y: number; w: number; h: number } | null
+  /** Show exactly this rectangle of the drawing, centred, nothing cropped. */
+  showBox: (box: { x: number; y: number; w: number; h: number }, pad?: number) => void
+  /** The pan and zoom as it stands, and the way back to it after a print. */
+  snapshot: () => { x: number; y: number; k: number }
+  restore: (view: { x: number; y: number; k: number }) => void
 }
 
 export default function BuildingCanvas({
@@ -110,19 +127,61 @@ export default function BuildingCanvas({
     })
   }, [])
 
-  const fit = useCallback(() => {
+  const fit = useCallback((padTop: number = PAD_TOP) => {
     const box = frame.current?.getBoundingClientRect()
     if (!box) return
     const k = Math.min(
       (box.width - PAD * 2) / FLOORPLAN.width,
-      (box.height - PAD_TOP - PAD) / FLOORPLAN.height,
+      (box.height - padTop - PAD) / FLOORPLAN.height,
     )
     setView({
       x: (box.width - FLOORPLAN.width * k) / 2,
-      y: PAD_TOP + (box.height - PAD_TOP - PAD - FLOORPLAN.height * k) / 2,
+      y: padTop + (box.height - padTop - PAD - FLOORPLAN.height * k) / 2,
       k,
     })
   }, [])
+
+  /**
+   * The view, mirrored, so `viewport` below can be a stable callback.
+   *
+   * The handle is handed up through `onReady` — rebuilding it on every pan would
+   * re-run that effect on every pointermove for the sake of one method nothing
+   * calls while panning.
+   */
+  const viewRef = useRef(view)
+  viewRef.current = view
+
+  const viewport = useCallback(() => {
+    const box = frame.current?.getBoundingClientRect()
+    if (!box) return null
+    const v = viewRef.current
+    return { x: -v.x / v.k, y: -v.y / v.k, w: box.width / v.k, h: box.height / v.k }
+  }, [])
+
+  /**
+   * Fits an arbitrary rectangle rather than a room's ring, and with no margin of
+   * its own by default: a print asks for a box that already carries the padding
+   * it wants, and half a room's width added to it would crop the far wall.
+   */
+  const showBox = useCallback(
+    (box: { x: number; y: number; w: number; h: number }, pad = 0) => {
+      const frameBox = frame.current?.getBoundingClientRect()
+      if (!frameBox || box.w <= 0 || box.h <= 0) return
+      const k = Math.min(
+        (frameBox.width - pad * 2) / box.w,
+        (frameBox.height - pad * 2) / box.h,
+      )
+      setView({
+        x: frameBox.width / 2 - (box.x + box.w / 2) * k,
+        y: frameBox.height / 2 - (box.y + box.h / 2) * k,
+        k,
+      })
+    },
+    [],
+  )
+
+  const snapshot = useCallback(() => viewRef.current, [])
+  const restore = useCallback((v: { x: number; y: number; k: number }) => setView(v), [])
 
   const fitTo = useCallback((points: Pt[]) => {
     const box = frame.current?.getBoundingClientRect()
@@ -153,11 +212,19 @@ export default function BuildingCanvas({
   }, [fit])
 
   useEffect(() => {
-    onReady({ fit, fitTo, zoomBy: (factor) => {
-      const box = frame.current?.getBoundingClientRect()
-      zoomAt(factor, (box?.width ?? 400) / 2, (box?.height ?? 400) / 2)
-    } })
-  }, [fit, fitTo, zoomAt, onReady])
+    onReady({
+      fit,
+      fitTo,
+      viewport,
+      showBox,
+      snapshot,
+      restore,
+      zoomBy: (factor) => {
+        const box = frame.current?.getBoundingClientRect()
+        zoomAt(factor, (box?.width ?? 400) / 2, (box?.height ?? 400) / 2)
+      },
+    })
+  }, [fit, fitTo, viewport, showBox, snapshot, restore, zoomAt, onReady])
 
   /** A pointer position in floorplan units. */
   const toUser = useCallback(

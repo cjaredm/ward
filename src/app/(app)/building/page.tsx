@@ -43,7 +43,7 @@ export default async function BuildingPage({
   )
 
   return (
-    <main className="relative h-dvh overflow-hidden bg-white">
+    <main className="building-print-shell relative h-dvh overflow-hidden bg-white">
       {/*
         No header band. Every other page has one; here it was a strip of white
         across the top of a drawing that wants the whole screen, holding a title
