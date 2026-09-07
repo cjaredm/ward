@@ -11,11 +11,13 @@ import Map, {
   type MapRef,
 } from 'react-map-gl/maplibre'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import './ward-map-print.css'
 import {
   setWorkerUrl,
   type CircleLayerSpecification,
   type FillLayerSpecification,
   type LineLayerSpecification,
+  type Map as MapLibreMap,
   type SymbolLayerSpecification,
 } from 'maplibre-gl'
 import {
@@ -87,6 +89,26 @@ const HIDDEN_BY_DEFAULT = ['business', 'common_area']
  * 28px-tall buttons were a miss more often than not.
  */
 const TAP = 'min-h-11 py-2 sm:min-h-0 sm:py-1.5'
+
+/**
+ * Printing, in inches of letter paper.
+ *
+ * Landscape at a 0.4in margin leaves 10.2 x 7.7in, and the masthead and legend
+ * take about 1.2 of the 7.7 between them. What is left is the map's box, and
+ * `PRINT_ASPECT` is the shape the on-screen canvas is resized to before the
+ * print so that the picture is never stretched onto it.
+ */
+const PAGE_W_IN = 10.2
+const MAP_MAX_H_IN = 7.7 - 1.2
+const PRINT_ASPECT = PAGE_W_IN / MAP_MAX_H_IN
+/**
+ * How wide the canvas is rendered for a print, in CSS pixels.
+ *
+ * A print is rasterised from whatever the WebGL canvas holds, so its width is
+ * the resolution of the printed map: 1800px across 10.2in is about 175 dpi,
+ * which is a readable street map. Higher costs a longer wait for tiles.
+ */
+const PRINT_PX_W = 1800
 
 type Boundary = { type: 'Feature'; geometry: unknown; properties: object; bbox: number[] }
 
@@ -163,6 +185,17 @@ export default function WardMap({
    */
   const [controlsOpen, setControlsOpen] = useState(true)
   const [coarse, setCoarse] = useState(false)
+  /**
+   * Whether the map is being laid out for paper.
+   *
+   * A print is a screenshot of the WebGL canvas as it stands, so a landscape
+   * page can only come from a landscape canvas — while this is on, the whole map
+   * is a fixed 10.2-by-6.5in box in pixels and MapLibre has been told to redraw
+   * at that shape. It lasts as long as the print dialog and no longer.
+   */
+  const [printing, setPrinting] = useState(false)
+  /** The date the masthead prints, filled in when a print actually starts. */
+  const [printedOn, setPrintedOn] = useState('')
   /**
    * Basemap: the drawn map, or aerial imagery with the map's roads and labels
    * still on top. Which one you want depends on the job — imagery to tell which
@@ -1209,11 +1242,117 @@ export default function WardMap({
     setHiddenKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]))
   }, [])
 
+  /**
+   * Sizes the paper box to the canvas that is about to be printed.
+   *
+   * Runs on every print, the browser's own Cmd-P included — which is the reason
+   * it measures rather than assuming the prepared shape. A canvas printed into a
+   * box of a different aspect ratio comes out stretched, and a map stretched by
+   * a third is a map with the wrong distances on it. The width gives way instead:
+   * printed from a portrait window the map is narrower than the page, which is
+   * honest, where a squashed ward is not.
+   */
+  useEffect(() => {
+    const onBeforePrint = () => {
+      setPrintedOn(
+        new Date().toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        }),
+      )
+      const el = mapRef.current?.getMap().getContainer()
+      if (!el) return
+      const aspect = el.clientWidth / Math.max(1, el.clientHeight)
+      const height = Math.min(MAP_MAX_H_IN, PAGE_W_IN / aspect)
+      const style = document.documentElement.style
+      style.setProperty('--ward-print-h', `${height.toFixed(2)}in`)
+      style.setProperty('--ward-print-w', `${(height * aspect).toFixed(2)}in`)
+    }
+    window.addEventListener('beforeprint', onBeforePrint)
+    return () => window.removeEventListener('beforeprint', onBeforePrint)
+  }, [])
+
+  /**
+   * Prints the map as one landscape page.
+   *
+   * Three things have to happen before the dialog opens, in this order: the
+   * container becomes the shape of the paper, MapLibre redraws at that shape,
+   * and the tiles for the wider view finish arriving. Skip the last and the page
+   * prints the grey checkerboard of a half-loaded map.
+   *
+   * The camera is re-fitted to the bounds it had rather than left on its centre
+   * and zoom: in a box a third wider, the same zoom shows a taller strip of ward
+   * than what was on screen, and what was on screen is what the user meant to
+   * print. Widening only ever adds; nothing they were looking at falls off.
+   */
+  const doPrint = useCallback(async () => {
+    const map = mapRef.current?.getMap()
+    if (!map || printing) return
+    const before = map.getBounds()
+    const reflow = async (bounds: typeof before) => {
+      // Two frames: one for React to commit the new size, one for the browser to
+      // lay it out. resize() reads clientWidth, so it has to run after both.
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+      map.resize()
+      map.fitBounds(bounds, { padding: 0, duration: 0 })
+    }
+    setPrinting(true)
+    try {
+      await reflow(before)
+      await drawn(map)
+      // Blocks until the dialog is dismissed, which is what makes the restore
+      // below safe to run straight after it.
+      window.print()
+    } finally {
+      setPrinting(false)
+      void reflow(before)
+    }
+  }, [printing])
+
   return (
-    <div className="relative h-dvh w-full">
+    <div
+      // Fixed rather than relative while printing so a box wider than the window
+      // is simply clipped instead of adding scrollbars to the page underneath.
+      // The print stylesheet takes this back into normal flow, where the
+      // masthead, the map and the legend stack down one sheet.
+      className={`ward-print-sheet w-full ${
+        printing ? 'fixed left-0 top-0 z-50 overflow-hidden bg-white' : 'relative h-dvh'
+      }`}
+      style={
+        printing
+          ? { width: PRINT_PX_W, height: Math.round(PRINT_PX_W / PRINT_ASPECT) }
+          : undefined
+      }
+    >
+      {/*
+        Print-only masthead.
+        A map with no date on it is a map nobody can tell is out of date, and
+        these are printed for a list of doors to knock — six months later the
+        difference matters.
+      */}
+      <header className="hidden print:block">
+        <div className="flex items-baseline justify-between gap-4 border-b border-neutral-300 pb-1">
+          <h2 className="text-base font-semibold text-neutral-900">
+            Ward Map
+            {activeGroup && <span style={{ color: ink }}> &mdash; {groupTitle(activeGroup)}</span>}
+          </h2>
+          <p className="text-[10px] text-neutral-600">
+            {counts.homes} homes &middot; {counts.withHouseholds} with a household
+            {printedOn && ` \u00b7 ${printedOn}`}
+          </p>
+        </div>
+      </header>
+
       <Map
         ref={mapRef}
+        id="ward-map"
         mapStyle={MAP_STYLE_URL}
+        // A WebGL canvas is blank the moment after it draws unless its buffer is
+        // kept, and a print is read off that buffer. Without this the map prints
+        // as an empty white rectangle.
+        canvasContextAttributes={{ preserveDrawingBuffer: true }}
         initialViewState={FALLBACK_VIEW}
         minZoom={MIN_ZOOM}
         maxZoom={19}
@@ -1310,9 +1449,46 @@ export default function WardMap({
         )}
       </Map>
 
+      {/*
+        Print-only legend.
+        Only the keys that are switched on, because the print is of the map as
+        filtered — a legend row for a colour that was hidden is a colour the
+        reader will hunt the page for. The counts come along: 'Less active 34' is
+        the number the council asks for next.
+      */}
+      <div className="hidden print:block">
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-neutral-300 pt-1 text-[10px] text-neutral-700">
+          {LEGEND.filter((l) => !hiddenKeys.includes(l.key)).map(({ key, label, color }) => (
+            <li key={key} className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="h-2.5 w-2.5 rounded-sm ring-1 ring-inset ring-black/20"
+                style={{ background: color }}
+              />
+              <span>{label}</span>
+              <span className="tabular-nums text-neutral-500">{counts.byKey[key] ?? 0}</span>
+            </li>
+          ))}
+          {activeGroup && (
+            <li className="flex items-center gap-1.5">
+              <span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: tint }} />
+              <span style={{ color: ink }}>
+                {groupTitle(activeGroup)} &mdash; {shownHomes} home{shownHomes === 1 ? '' : 's'}
+              </span>
+            </li>
+          )}
+          {counts.pins > 0 && (
+            <li className="flex items-center gap-1.5 text-neutral-500">
+              <span aria-hidden>&#9679;</span>
+              <span>Dot = home pinned without a parcel ({counts.pins})</span>
+            </li>
+          )}
+        </ul>
+      </div>
+
       {/* Legend + controls */}
       <div
-        className="pointer-events-none absolute z-10 w-[min(20rem,calc(100vw-5.5rem))]"
+        className="pointer-events-none absolute z-10 w-[min(20rem,calc(100vw-5.5rem))] print:hidden"
         style={{
           left: 'max(0.75rem, env(safe-area-inset-left))',
           top: 'max(0.75rem, env(safe-area-inset-top))',
@@ -1322,6 +1498,22 @@ export default function WardMap({
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-sm font-semibold text-neutral-900">Ward Map</h1>
             <div className="flex items-center gap-1">
+              {/*
+                What comes out is the view on screen — the same zoom, the same
+                filters, the same highlight — on one landscape page. On a phone
+                too: the print canvas is a fixed size that has nothing to do with
+                the window, and the browser's own print menu on a portrait screen
+                is the one path that cannot fill the page.
+              */}
+              <button
+                type="button"
+                onClick={() => void doPrint()}
+                disabled={printing}
+                title="Print the map as it is on screen, on one landscape page"
+                className="inline-flex items-center rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 hover:border-neutral-900 disabled:opacity-50"
+              >
+                {printing ? 'Preparing\u2026' : 'Print'}
+              </button>
               {/* The map is one section of the app; the dashboard is the way to the rest. */}
               <Link
                 href="/"
@@ -1813,7 +2005,7 @@ export default function WardMap({
       {/* Drag rectangle, drawn in screen space over the canvas. */}
       {box && (
         <div
-          className="pointer-events-none absolute z-10 border-2 border-blue-600 bg-blue-500/20"
+          className="pointer-events-none absolute z-10 border-2 border-blue-600 bg-blue-500/20 print:hidden"
           style={{
             left: Math.min(box.x1, box.x2),
             top: Math.min(box.y1, box.y2),
@@ -1826,7 +2018,7 @@ export default function WardMap({
       {/* Bulk action bar */}
       {selectMode && (
         <div
-          className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur sm:right-[26rem] sm:inset-x-auto sm:left-0"
+          className="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center gap-2 border-t border-neutral-200 bg-white/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur print:hidden sm:right-[26rem] sm:inset-x-auto sm:left-0"
           style={{ paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' }}
         >
           <span className="font-medium text-neutral-900">
@@ -1887,7 +2079,7 @@ export default function WardMap({
 
       {error && (
         <div
-          className="absolute inset-x-3 z-30 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg sm:inset-x-auto sm:left-3"
+          className="absolute inset-x-3 z-30 rounded-md bg-red-600 px-3 py-2 text-xs text-white shadow-lg print:hidden sm:inset-x-auto sm:left-3"
           style={{ bottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
         >
           {error}
@@ -1896,7 +2088,7 @@ export default function WardMap({
 
       {drop && (
         <div
-          className="absolute inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+          className="absolute inset-0 z-40 flex items-end justify-center bg-black/40 p-4 print:hidden sm:items-center"
           role="dialog"
           aria-modal="true"
           aria-labelledby="drop-title"
@@ -1956,16 +2148,43 @@ export default function WardMap({
         </div>
       )}
 
+      {/* The detail sheet is a thing you tap, and it covers a quarter of the
+          map — neither belongs on paper. */}
       {selected && (
-        <ParcelPanel
-          target={selected}
-          actorName={actorName}
-          onClose={() => setSelected(null)}
-          onChanged={load}
-        />
+        <div className="print:hidden">
+          <ParcelPanel
+            target={selected}
+            actorName={actorName}
+            onClose={() => setSelected(null)}
+            onChanged={load}
+          />
+        </div>
       )}
     </div>
   )
+}
+
+/**
+ * Resolves once the map has finished drawing everything it is going to draw.
+ *
+ * 'idle' is MapLibre's own word for it: the camera has stopped, every tile the
+ * current view needs has arrived and the last frame is on the canvas. The
+ * timeout is for the tile that never comes — a print of a partly loaded map
+ * beats a Print button that does nothing on a bad connection.
+ */
+function drawn(map: MapLibreMap, timeoutMs = 6000): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      map.off('idle', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, timeoutMs)
+    map.once('idle', finish)
+  })
 }
 
 /**
