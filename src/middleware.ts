@@ -2,10 +2,26 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { COOKIE_NAME, verifySession } from '@/lib/auth-edge'
 
 /**
+ * Pages anybody may load without a session.
+ *
+ * Checked here rather than carved out of the matcher below: that pattern is a
+ * negative lookahead over path *prefixes*, and '/' is the prefix of everything
+ * — excluding it there would open the whole app. An exact-match set says what
+ * is meant and cannot be widened by accident.
+ *
+ * The landing page holds meeting times and public links only. /login is the
+ * form itself and is excluded in the matcher, since it must stay reachable even
+ * while this list is being edited.
+ */
+const PUBLIC_PATHS = new Set(['/'])
+
+/**
  * Runs on the Edge runtime, so it only verifies the JWT (jose is Edge-safe).
  * The bcrypt comparison lives in the Node.js login route.
  */
 export async function middleware(req: NextRequest) {
+  if (PUBLIC_PATHS.has(req.nextUrl.pathname)) return NextResponse.next()
+
   const session = await verifySession(req.cookies.get(COOKIE_NAME)?.value)
 
   if (!session) {

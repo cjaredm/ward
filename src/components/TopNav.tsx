@@ -45,7 +45,7 @@ export default function TopNav({ links, isAdmin }: { links: NavLink[]; isAdmin: 
   const items: NavLink[] = [
     // First, and only when it is somewhere else: a Dashboard item on the
     // dashboard points at the page you are already on.
-    ...(pathname === '/' ? [] : [{ href: '/', label: 'Dashboard' }]),
+    ...(pathname === '/dashboard' ? [] : [{ href: '/dashboard', label: 'Dashboard' }]),
     ...links.filter((l) => l.href !== pathname),
     ...(isAdmin
       ? [

@@ -8,6 +8,9 @@ const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Ward Map',
   description: 'Private ward parcel and household map.',
+  // Noindex is the default for every route, and the public landing page is the
+  // one page that overrides it. Metadata merges field by field, so a new page
+  // added without thinking about crawlers gets the safe answer.
   robots: { index: false, follow: false },
   // Added to the home screen it runs without Safari's chrome, which is most of
   // the screen back on a phone.

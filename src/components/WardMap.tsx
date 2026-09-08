@@ -1524,7 +1524,7 @@ export default function WardMap({
               </button>
               {/* The map is one section of the app; the dashboard is the way to the rest. */}
               <Link
-                href="/"
+                href="/dashboard"
                 className="inline-flex items-center rounded-md border border-neutral-300 px-2 py-1 text-xs font-medium text-neutral-800 hover:border-neutral-900"
               >
                 Dashboard

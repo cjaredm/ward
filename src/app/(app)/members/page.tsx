@@ -22,7 +22,7 @@ export const dynamic = 'force-dynamic'
 export default async function MembersPage() {
   const user = await currentUser()
   if (!user) redirect('/login')
-  if (!canSee(user, 'members')) redirect('/')
+  if (!canSee(user, 'members')) redirect('/dashboard')
 
   const rows = (await sql`
     SELECT jsonb_build_object(

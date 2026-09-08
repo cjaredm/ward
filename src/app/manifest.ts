@@ -17,7 +17,10 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'Ward Map',
     short_name: 'Ward Map',
     description: 'Private ward parcel and household map.',
-    start_url: '/',
+    // The dashboard, not '/': the public landing page is for visitors, and
+    // somebody who installed this did it to open the map on a doorstep. An
+    // expired session still lands on /login from here, as it always did.
+    start_url: '/dashboard',
     // Everything on this origin belongs to the app, so an in-app link never
     // kicks the user out to a browser tab.
     scope: '/',

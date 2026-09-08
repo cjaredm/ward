@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 export default async function UsersPage() {
   const user = await currentUser()
   if (!user) redirect('/login')
-  if (!user.is_admin) redirect('/')
+  if (!user.is_admin) redirect('/dashboard')
 
   return (
     <main className="min-h-dvh bg-neutral-50">

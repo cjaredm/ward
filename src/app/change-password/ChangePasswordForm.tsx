@@ -44,7 +44,7 @@ export default function ChangePasswordForm({
         setError(body?.error ?? 'Could not change the password.')
         return
       }
-      router.replace('/')
+      router.replace('/dashboard')
       router.refresh()
     } catch {
       setError('Network error. Check your connection and try again.')
@@ -122,7 +122,7 @@ export default function ChangePasswordForm({
       </button>
 
       {!forced && (
-        <Link href="/" className="block text-center text-sm text-neutral-600 underline underline-offset-2">
+        <Link href="/dashboard" className="block text-center text-sm text-neutral-600 underline underline-offset-2">
           Back to dashboard
         </Link>
       )}

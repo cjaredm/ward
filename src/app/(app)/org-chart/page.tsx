@@ -23,7 +23,7 @@ export const dynamic = 'force-dynamic'
 export default async function OrgChartPage() {
   const user = await currentUser()
   if (!user) redirect('/login')
-  if (!canSee(user, 'org_chart')) redirect('/')
+  if (!canSee(user, 'org_chart')) redirect('/dashboard')
 
   const rows = (await sql`
     SELECT c.id, c.org_key, c.name, c.unit, c.is_custom, c.sort, c.printed_name,

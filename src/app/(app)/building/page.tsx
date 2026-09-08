@@ -32,7 +32,7 @@ export default async function BuildingPage({
   if (!user) redirect('/login')
   // Back to the dashboard rather than a 403 page: it lists what this person can
   // open, which is the useful answer to "you cannot open this".
-  if (!canSee(user, 'building')) redirect('/')
+  if (!canSee(user, 'building')) redirect('/dashboard')
 
   const data = await readBuilding()
   const nav = (

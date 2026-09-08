@@ -22,7 +22,7 @@ export default async function MapPage({
   if (!user) redirect('/login')
   // Back to the dashboard rather than a 403 page: it lists what this person can
   // open, which is the useful answer to "you cannot open this".
-  if (!canSee(user, 'map')) redirect('/')
+  if (!canSee(user, 'map')) redirect('/dashboard')
 
   const initialGroupKey = org
     ? org.startsWith('org:') || org.startsWith('unit:')

@@ -79,11 +79,33 @@ SELECT parcel_id, address FROM parcels WHERE address ILIKE '%PAINTED VISTA%';
 
 Push to `main` deploys. That is the whole pipeline.
 
+## The public page
+
+`/` is a public landing page — no session, no ward data. It carries what a visitor needs:
+Sunday meeting time and address, the bishopric interview scheduling link, and the handful of
+outside links the ward announces (Gospel Living, Member Tools, the meetinghouse locator). All of
+it comes from [`src/lib/ward.ts`](src/lib/ward.ts), which is the one place to change a meeting
+time or repoint the scheduling link.
+
+Three things make that page public without opening anything else:
+
+- [`middleware.ts`](src/middleware.ts) keeps an exact-match `PUBLIC_PATHS` set. The matcher's
+  lookahead is over path *prefixes*, and `/` is the prefix of every route — carving it out there
+  would unlock the app.
+- [`robots.ts`](src/app/robots.ts) allows `/$` and disallows `/`. Crawlers take the most specific
+  match, so the landing page is indexable and nothing behind it is.
+- The root layout defaults `robots` to noindex; the landing page is the single override. A page
+  added later without thinking about crawlers gets the safe answer.
+
+Sign in is a dialog on that page ([`SignInDialog`](src/components/SignInDialog.tsx)) so a member
+does not lose the page they were reading. `/login` still exists — it is where middleware sends an
+expired session — and both render the same [`SignInForm`](src/components/SignInForm.tsx).
+
 ## Accounts & permissions
 
-Everyone signs in with their own email and password. Signing in lands on the **dashboard** — a
-grid of the sections that person is allowed to open — not on the map; the map is one section
-among several.
+Everyone signs in with their own email and password. Signing in lands on the **dashboard** at
+`/dashboard` — a grid of the sections that person is allowed to open — not on the map; the map is
+one section among several. The installed PWA starts there too, rather than on the public page.
 
 Admins manage people at **/admin/users**:
 
